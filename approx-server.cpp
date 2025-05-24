@@ -3,6 +3,10 @@
 #include <cstring>
 #include <map>
 #include <stdexcept>
+#include <poll.h>
+
+#include "utils.hpp"
+#include "utils-server.hpp"
 
 using namespace std;
 
@@ -12,30 +16,7 @@ const uint64_t DEF_N = 4, MIN_N = 1, MAX_N = 8;
 const uint64_t DEF_M = 131, MIN_M = 1, MAX_M = 12341234;
 
 // TODO: co na cerr co na cout???
-
-uint64_t get_arg(char arg, map<char, char*> &args, uint64_t def, uint64_t min, uint64_t max) {
-    if (!args.contains('p')) {
-        return def;
-    }
-    char* str = args['p'];
-    size_t len = strlen(str);
-    uint64_t res = 0;
-
-    for (int i = 0; i < len; ++i) {
-        if (str[i] < '0' or str[i] > '9') {
-            throw invalid_argument(string("invalid ") + arg + " - " + str + ".");
-        }
-        res = res * 10 + str[i] - '0';
-        if (res > max) {
-            throw invalid_argument(string("argument ") + str + "for option " + arg + "is too big.");
-        }
-    }
-    if (res < min) {
-        throw invalid_argument(string("argument ") + str + "for option " + arg + "is too small.");
-    }
-    return res;
-}
-
+// TODO: erorry jak w tresi
 
 
 int main(int argc, char* argv[]) {
@@ -44,7 +25,7 @@ int main(int argc, char* argv[]) {
 
     if (argc % 2 != 1) {
         cout << "ERROR: Every option must have a value.\n";
-        return 1; // TODO: erorry jak w tresi
+        return 1;
     }
 
 
@@ -54,7 +35,7 @@ int main(int argc, char* argv[]) {
             argv[i] != "-n" and argv[i] != "-m" and
             argv[i] != "-f") {
             cout << "ERROR: invalid option " << argv[i] << ".\n";
-            return 1; // TODO: erorry jak w tresi
+            return 1;
         }
         if (args.contains(argv[i][1])) {
             cout << "ERROR: double parameter " << argv[i] << ".\n";
@@ -83,12 +64,12 @@ int main(int argc, char* argv[]) {
 
     if (!args.contains('f')) {
         cout << "ERROR: option -f is mandatory.\n";
-        return 1;
+        return 1; 
     }
     f = args['f'];
 
 
-    
+
 
     return 0;
 }
