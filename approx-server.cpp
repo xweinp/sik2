@@ -4,6 +4,7 @@
 #include <map>
 #include <stdexcept>
 #include <poll.h>
+#include <csignal>
 
 #include "utils.hpp"
 #include "utils-server.hpp"
@@ -18,9 +19,14 @@ const uint64_t DEF_M = 131, MIN_M = 1, MAX_M = 12341234;
 // TODO: co na cerr co na cout???
 // TODO: erorry jak w tresi
 
+static bool finish = false;
 
-int main(int argc, char* argv[]) {
-    
+static void catch_int(int sig) {
+    finish = true;
+    printf("signal %d catched so no new connections will be accepted\n", sig);
+}
+
+int main(int argc, char* argv[]) {    
     map<char, char*> args;
 
     if (argc % 2 != 1) {
@@ -68,8 +74,45 @@ int main(int argc, char* argv[]) {
     }
     f = args['f'];
 
+    Pollvec pollfds;
+    try {
+        install_signal_handler(SIGINT, catch_int, SA_RESTART);
+        pollfds.set_listener(port);
+    }
+    catch (const runtime_error &e) {
+        // TODO: handle errors
+        cout << "ERROR: " << e.what() << "\n";
+        return 1;
+    }
 
+    do {
+        if (finish) {
+            // TODO: close all sockets or idk
+        }
+        int poll_status = poll(
+            pollfds.pollfds.data(), 
+            (nfds_t) pollfds.size(), 
+            -1 // TODO: time management
+        );
+        if (poll_status < 0) {
+            // TODO: wtf is oging on here?
+            continue;
+        }
+        else if (poll_status == 0) {
+            // TODO: also wtf
+            continue;
+        }
+        if (!finish) {
+            // New connection.
+            try {
+                pollfds.accept_new_connection();
+            }
+            catch (const runtime_error &e) {
+                cout << "ERROR: " << e.what() << "\n";
+                continue;
+            }
+        }
 
-
+    } while (true);
     return 0;
 }

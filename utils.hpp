@@ -2,6 +2,7 @@
 #include <map>
 #include <cstdint>
 #include <cstring>
+#include <signal.h>
 
 using namespace std;
 
@@ -26,4 +27,18 @@ uint64_t get_arg(char arg, map<char, char*> &args, uint64_t def, uint64_t min, u
         throw invalid_argument(string("argument ") + str + "for option " + arg + "is too small.");
     }
     return res;
+}
+
+void install_signal_handler(int signal, void (*handler)(int), int flags) {
+    struct sigaction action;
+    sigset_t block_mask;
+
+    sigemptyset(&block_mask);
+    action.sa_handler = handler;
+    action.sa_mask = block_mask;
+    action.sa_flags = flags;
+
+    if (sigaction(signal, &action, NULL) < 0) {
+        throw runtime_error("sigaction failed!");
+    }
 }
