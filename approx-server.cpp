@@ -75,9 +75,13 @@ int main(int argc, char* argv[]) {
     f = args['f'];
 
     Pollvec pollfds;
+    PlayerSet players;
+    string buffer;
+
     try {
         install_signal_handler(SIGINT, catch_int, SA_RESTART);
         pollfds.set_listener(port);
+        buffer.resize(1024 * 1024); // TODO: size management
     }
     catch (const runtime_error &e) {
         // TODO: handle errors
@@ -102,17 +106,48 @@ int main(int argc, char* argv[]) {
             // TODO: also wtf
             continue;
         }
-        if (!finish) {
-            // New connection.
-            try {
-                pollfds.accept_new_connection();
+        
+        // New connection.
+        try {
+            pollfds.accept_new_connection();
+        }
+        catch (const runtime_error &e) {
+            cout << "ERROR: " << e.what() << "\n";
+            continue;
+        }
+        for (int i = 1; i < pollfds.size(); ++i) {
+            if (pollfds.pollfds[i].revents & POLLIN) {
+                // I can read from this buffers socket.
+
+                auto &player = players.get_player(i);
+                size_t len = read(
+                    player.fd, 
+                    buffer.data(), 
+                    buffer.size()
+                );
+                if (len < 0) {
+                    // TODO: handle errors
+                }
+                if (len == 0) {
+                    // Client disconnected.
+                    cout << "Client disconnected.\n";
+                    players.delete_client(i);
+                    pollfds.delete_client(i);
+                    continue;
+                }
+                player.extend_message(buffer.substr(0, len));
+            
+                if (!player.helloed) {
+
+                }
+                    
             }
-            catch (const runtime_error &e) {
-                cout << "ERROR: " << e.what() << "\n";
-                continue;
+            if (pollfds.pollfds[i].revents & POLLOUT) {
+                // I can write if there is something to write.
             }
         }
 
     } while (true);
+
     return 0;
 }

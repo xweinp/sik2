@@ -5,6 +5,7 @@
 #include <arpa/inet.h>
 #include <unistd.h> 
 #include <fcntl.h> 
+#include <queue>
 
 using namespace std;
 
@@ -87,12 +88,67 @@ int ipv4_only_sock(uint16_t port) {
     return socket_fd;
 }
 
+bool proper_hello(const string& msg) {
+    return  msg.size() > 8 and 
+            msg.substr(0, 6) == "HELLO " and
+            msg.back() == '\n' and 
+            msg[msg.size() - 2] == '\r';
+}
+
+string id_from_hello(const string& msg) {
+    return msg.substr(6, msg.size() - 8); // Remove "HELLO " and "\r\n"
+}
+
+
+
 struct Client {
     int fd; // File descriptor for the client socket
     sockaddr_storage addr; // Address of the client
     socklen_t addr_len; // Length of the address structure
 
+    string id;
+    string buffered_message;
+    queue<string> messages; // Messages received from the client
     
+    string reply_buffer; // Buffer for the reply to the client
+    size_t reply_pos = 0; // Position in the reply buffer
+
+    bool helloed = 0;
+    bool sent_reply = 0;
+
+    void extend_message(const string& msg) {
+        // every message ends with "\r\n"
+        size_t old_len = buffered_message.size();
+        buffered_message += msg;
+        size_t erase_pref = 0;
+
+        for (size_t i = old_len > 0? old_len - 1: 0; i + 1 < buffered_message.size(); ++i) {
+            if (buffered_message[i] == '\r' and buffered_message[i + 1] == '\n') {
+                // Found end of a message.
+                messages.push(buffered_message.substr(erase_pref, i + 2 - erase_pref));
+                erase_pref = i + 2; // Erase everything before this point.
+            }
+        }
+    }
+    string get_message() {
+        string msg = messages.front();
+        messages.pop();
+
+        return msg;
+    }
+};
+
+
+struct PlayerSet {
+    vector<Client> players;
+
+    void delete_client(size_t i) { //INDEXING FORM 1! 
+        swap(players[i - 1], players[players.size() - 1]);
+        players.pop_back();
+    }
+    Client &get_player(size_t i) { //INDEXING FORM 1! 
+        return players[i - 1];
+    }
 };
 
 struct Pollvec {
@@ -133,7 +189,7 @@ struct Pollvec {
         pollfds.push_back(client);
     }
     void delete_client(size_t i) {
-        // TODO: zamknij socket czy cos
+        close(pollfds[i].fd);
         swap(pollfds[i], pollfds[pollfds.size() - 1]);
         pollfds.pop_back();
     }
