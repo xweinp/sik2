@@ -91,15 +91,7 @@ bool proper_hello(const string& msg) {
 
     string id = id_from_hello(msg);
     
-    for (int i = 0; i < id.size(); ++i) {
-        bool is_digit = id[i] >= '0' and id[i] <= '9';
-        bool is_letter = id[i] >= 'a' and id[i] <= 'z';
-        bool is_upper_letter = id[i] >= 'A' and id[i] <= 'Z';
-        if (!(is_digit or is_letter or is_upper_letter)) {
-            return false; // Invalid character in ID
-        }
-    }
-    return true; // Valid HELLO message 
+    return is_id_valid(id);
 }
 
 bool is_integer(const string& str) {

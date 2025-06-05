@@ -4,7 +4,7 @@
 #include <map>
 #include <stdexcept>
 #include <poll.h>
-#include <csignal>
+#include <unordered_set>
 
 #include "utils.hpp"
 #include "utils-server.hpp"
@@ -34,12 +34,12 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-
+    unordered_set<string> valid_args = {
+        "-p", "-k", "-n", "-m", "-f"
+    };
     
     for (int i = 1; i < argc; i += 2) {
-        if (argv[i] != "-p" and argv[i] != "-k" and 
-            argv[i] != "-n" and argv[i] != "-m" and
-            argv[i] != "-f") {
+        if (!valid_args.contains(argv[i])) {
             cout << "ERROR: invalid option " << argv[i] << ".\n";
             return 1;
         }

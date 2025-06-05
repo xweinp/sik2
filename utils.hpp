@@ -47,3 +47,15 @@ void install_signal_handler(int signal, void (*handler)(int), int flags) {
     }
 }
 
+bool is_id_valid(const string& id) {
+    for (int i = 0; i < id.size(); ++i) {
+        bool is_digit = id[i] >= '0' and id[i] <= '9';
+        bool is_letter = id[i] >= 'a' and id[i] <= 'z';
+        bool is_upper_letter = id[i] >= 'A' and id[i] <= 'Z';
+        if (!(is_digit or is_letter or is_upper_letter)) {
+            return false; // Invalid character in ID
+        }
+    }
+    return true; // ID is valid
+}
+
