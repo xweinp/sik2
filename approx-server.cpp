@@ -11,10 +11,10 @@
 
 using namespace std;
 
-const uint64_t DEF_P = 0, MIN_P = 0, MAX_P = 65535;
-const uint64_t DEF_K = 100, MIN_K = 1, MAX_K = 10000;
-const uint64_t DEF_N = 4, MIN_N = 1, MAX_N = 8;
-const uint64_t DEF_M = 131, MIN_M = 1, MAX_M = 12341234;
+const int64_t DEF_P = 0, MIN_P = 0, MAX_P = 65535;
+const int64_t DEF_K = 100, MIN_K = 1, MAX_K = 10000;
+const int64_t DEF_N = 4, MIN_N = 1, MAX_N = 8;
+const int64_t DEF_M = 131, MIN_M = 1, MAX_M = 12341234;
 
 // TODO: co na cerr co na cout???
 // TODO: erorry jak w tresi
@@ -23,14 +23,18 @@ static bool finish = false;
 
 static void catch_int(int sig) {
     finish = true;
-    printf("signal %d catched so no new connections will be accepted\n", sig);
+    print_error("Caught SIGINT, finishing the server.");
 }
 
-int main(int argc, char* argv[]) {    
+int main(int argc, char* argv[]) {
+    if(install_signal_handler(SIGINT, catch_int, SA_RESTART)) {
+        return 1;
+    }
+
     map<char, char*> args;
 
     if (argc % 2 != 1) {
-        cout << "ERROR: Every option must have a value.\n";
+        print_error("Every option must have a value.");
         return 1;
     }
 
@@ -40,64 +44,45 @@ int main(int argc, char* argv[]) {
     
     for (int i = 1; i < argc; i += 2) {
         if (!valid_args.contains(argv[i])) {
-            cout << "ERROR: invalid option " << argv[i] << ".\n";
+            print_error(string("Invalid option ") + argv[i] + ".");
             return 1;
         }
         if (args.contains(argv[i][1])) {
-            cout << "ERROR: double parameter " << argv[i] << ".\n";
+            print_error(string("Double parameter ") + argv[i] + ".");
             return 1;
         }
         args[argv[i][1]] = argv[i + 1];
     }
 
-    uint16_t port;
-    uint16_t k;
-    uint8_t n;
-    uint32_t m;
+    int32_t port;
+    int32_t k;
+    int32_t n;
+    int32_t m;
     char *f = NULL;
-    uint32_t f_len;
 
-    try {
-        port = get_arg('p', args, DEF_P, MIN_P, MAX_P);
-        k = get_arg('k', args, DEF_K, MIN_K, MAX_K);
-        n = get_arg('n', args, DEF_N, MIN_N, MAX_N);
-        m = get_arg('m', args, DEF_M, MIN_M, MAX_M);
-    }
-    catch (const invalid_argument &e) {
-        cout << "ERROR: " << e.what();
+    port = get_arg('p', args, DEF_P, MIN_P, MAX_P);
+    k = get_arg('k', args, DEF_K, MIN_K, MAX_K);
+    n = get_arg('n', args, DEF_N, MIN_N, MAX_N);
+    m = get_arg('m', args, DEF_M, MIN_M, MAX_M);
+    
+    if (port < 0 or k < 0 or n < 0 or m < 0) {
         return 1;
-    } 
+    }
 
     if (!args.contains('f')) {
-        cout << "ERROR: option -f is mandatory.\n";
+        print_error("option -f is mandatory.");
         return 1; 
     }
     f = args['f'];
 
-    Pollvec pollfds;
-    PlayerSet players;
-    string buffer;
+    Server server(port, k, n, m, f, &finish);
 
-    try {
-        install_signal_handler(SIGINT, catch_int, SA_RESTART);
-        pollfds.set_listener(port);
-        buffer.resize(1024 * 1024); // TODO: size management
-    }
-    catch (const runtime_error &e) {
-        // TODO: handle errors
-        cout << "ERROR: " << e.what() << "\n";
-        return 1;
-    }
 
     do {
         if (finish) {
             // TODO: close all sockets or idk
         }
-        int poll_status = poll(
-            pollfds.pollfds.data(), 
-            (nfds_t) pollfds.size(), 
-            -1 // TODO: time management
-        );
+        
         if (poll_status < 0) {
             // TODO: wtf is oging on here?
             continue;
@@ -135,18 +120,16 @@ int main(int argc, char* argv[]) {
                     pollfds.delete_client(i);
                     continue;
                 }
-                player.extend_message(buffer.substr(0, len));
-            
-                if (!player.helloed) {
-
-                }
-                    
+                player.read_message(buffer.substr(0, len), k);
             }
             if (pollfds.pollfds[i].revents & POLLOUT) {
                 // I can write if there is something to write.
+                auto &player = players.get_player(i);
+                if (player.has_ready_message_to_send()) {
+                    player.send_message();
+                }
             }
         }
-
     } while (true);
 
     return 0;

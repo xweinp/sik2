@@ -9,6 +9,7 @@
 #include <fcntl.h> 
 #include <queue>
 #include <iostream>
+#include <fstream>
 
 #include "utils.hpp"
 
@@ -29,6 +30,7 @@ struct Message {
         return delay_s < other.delay_s and send_weigth < other.send_weigth;
     }
     void make_penalty() {
+        // TODO: fix this!
         content = "PENALTY\r\n";
         delay_s = 0;
         send_weigth = 0;
@@ -48,8 +50,13 @@ struct MsgComparator {
     }
 };
 
+auto time_diff(TimePoint begin, TimePoint end) {
+    return duration_cast<milliseconds>(end - begin).count();
+}
+
 struct MessageQueue {
     priority_queue<Msg, vector<Msg>, MsgComparator> messages; 
+    size_t top_message_pos = 0; 
 
     void push(const string& msg, int delay_s) {
         auto now = steady_clock::now();
@@ -71,6 +78,25 @@ struct MessageQueue {
     }
     string get_ready_message() {
         return messages.top().second;
+    }
+    void send_message(int socket_fd) {
+        auto msg = get_ready_message();
+        int sent_len = write(
+            socket_fd, 
+            msg.c_str() + top_message_pos,
+            msg.size() - top_message_pos
+        );
+        if (sent_len < 0) {
+            cout << "ERROR: Cannot send message to client.\n";
+            // TODO: co w takim errorze?
+            return;
+        }
+        top_message_pos += sent_len;
+        if (top_message_pos == msg.size()) {
+            // We have sent the whole message.
+            pop();
+            top_message_pos = 0; // Reset position for the next message.
+        }   
     }
 };
 
@@ -217,6 +243,16 @@ struct Client {
                 messages_to_send.push(make_penalty(), 0);
             }
         }
+        if (!buffered_message.empty() and !messages_to_send.empty()) {
+            // We have some buffered message and we have sent a reply.
+            started_before_reply = true;
+        }
+    }
+    bool has_ready_message_to_send() const {
+        return !messages_to_send.ready_message();
+    }
+    void send_message() {
+        messages_to_send.send_message(fd);
     }
 };
 
@@ -237,7 +273,8 @@ struct Pollvec {
     // 0-th polldf is always the listening socket.
     // Other pollfds are clients.
     vector<pollfd> pollfds;
-
+    int32_t listen_port;
+    Pollvec(int32_t _listen_port) : listen_port(_listen_port) {};
     ~Pollvec() {
         for (const auto& pfd : pollfds) {
             if (pfd.fd >= 0) {
@@ -246,25 +283,26 @@ struct Pollvec {
         }
     }
 
-    void set_listener(uint16_t listen_port) {
+    int set_up() {
         int socket_fd = ipv6_enabled_sock(listen_port);
         if (socket_fd < 0) {
             socket_fd = ipv4_only_sock(listen_port);
         }
         if (socket_fd < 0) {
-            // TODO: errors
-            throw runtime_error("Cannot create listening socket");
+            print_error("Cannot create listening socket.");
+            return -1;
         }
         if (fcntl(socket_fd, F_SETFL, O_NONBLOCK)) {
             close(socket_fd);
-            // TODO: handle errors
-            throw runtime_error("Cannot set listening socket to non-blocking mode");
+            print_error("Cannot set listening socket to non-blocking mode.");
+            return -1;
         }
         pollfd listen_fd{};
         listen_fd.fd = socket_fd;
         listen_fd.events = POLLIN;
         listen_fd.revents = 0;
         pollfds.push_back(listen_fd);
+        return 0;
     }
 
     void add_client(pollfd client) {
@@ -315,22 +353,59 @@ struct Pollvec {
 struct Server {
     Pollvec pollvec;
     PlayerSet players;
-    unsigned int k; // Number of players to wait for before sending a message
+    int32_t k, n;
+    int32_t m, counter_m = 0;
+    char* filename;
+    bool *finish_flag; 
+    ifstream file;
     
-    Server(uint16_t listen_port, unsigned int k) : k(k) {
-        pollvec.set_listener(listen_port);
+    Server(
+        int32_t listen_port,  int32_t k, 
+        int32_t n, int32_t m, char *filename,
+        bool *finish_flag
+    ) : pollvec(listen_port), k(k), m(m), n(n), 
+        filename(filename), finish_flag(finish_flag) {} 
+
+    int set_up() {
+        if (pollvec.set_up()) {
+            // polvec prints error
+            return -1; 
+        }
+        file.open(filename);
+        if (!file) {
+            print_error("Cannot open file: " + string(filename));
+            return -1;
+        }
+        return 0;
     }
 
-    void accept_new_connection() {
-        pollvec.accept_new_connection();
-    }
+    void play_a_game() {
+        counter_m = 0;
+        TimePoint next_event = steady_clock::now() + years(10); // Joke
+        bool has_next_event = false;
+        bool instant_event = false;
 
-    void add_client(Client client) {
-        players.players.push_back(client);
-        pollfd client_fd_struct{};
-        client_fd_struct.fd = client.fd;
-        client_fd_struct.events = POLLIN; 
-        client_fd_struct.revents = 0;
-        pollvec.add_client(client_fd_struct);
+        while (counter_m < m and !(*finish_flag)) {
+            if (next_event <= steady_clock::now()) {
+                has_next_event = false;
+            }
+            
+            int poll_status = poll(
+                pollvec.pollfds.data(), 
+                (nfds_t) pollvec.size(),
+                has_next_event? time_diff(steady_clock::now(), next_event) : -1
+            );
+
+            if (poll_status < 0) {
+                print_error("Poll error occurred. errno: " + to_string(errno) + ".");
+                if (*finish_flag) {
+                    return; 
+                }
+            }
+
+            else if (poll_status == 0) { // hmm i probably have something to send
+            }
+
+        }
     }
 };
