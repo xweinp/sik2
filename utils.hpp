@@ -1,10 +1,14 @@
+#pragma once
+
 #include <stdexcept>
 #include <map>
 #include <cstdint>
 #include <cstring>
 #include <signal.h>
+#include <chrono>
 
 using namespace std;
+using namespace std::chrono;
 
 uint64_t get_arg(char arg, map<char, char*> &args, uint64_t def, uint64_t min, uint64_t max) {
     if (!args.contains('p')) {
@@ -42,3 +46,4 @@ void install_signal_handler(int signal, void (*handler)(int), int flags) {
         throw runtime_error("sigaction failed!");
     }
 }
+
