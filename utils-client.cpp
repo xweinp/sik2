@@ -14,7 +14,7 @@ bool check_mandatory_option(const map<char, char*> &args, char option) {
 
 bool valid_bad_put(const string &msg) {
     return msg.size() > 10 and 
-        msg.substr(0, 8) == "BAD_PUT" and
+        msg.substr(0, 8) == "BAD_PUT " and
         msg.substr(msg.size() - 2, 2) == "\r\n";
 
 }
@@ -41,6 +41,14 @@ bool valid_coeff(string &msg) {
 
     for (size_t i = 6; i < msg.size();) {
         size_t next_space = msg.find(' ', i);
+        if (next_space == string::npos) {
+            string coeff = msg.substr(i);
+            if (coeff.empty() || !is_proper_rational(coeff)) {
+                msg += "\r\n"; 
+                return false; // Invalid coefficient format
+            }
+            break;
+        }
         string coeff = msg.substr(i, next_space - i);
         if (coeff.empty() || !is_proper_rational(coeff)) {
             msg += "\r\n"; 
@@ -103,7 +111,7 @@ int Client::setup_stdin() {
 }
 
 int Client::connect_to_server(bool force_ipv4, bool force_ipv6) {
-    addrinfo hints;
+    addrinfo hints{};
     addrinfo *res;
 
     hints.ai_family = force_ipv4 ? AF_INET : (force_ipv6 ? AF_INET6 : AF_UNSPEC);
@@ -150,28 +158,36 @@ int Client::connect_to_server(bool force_ipv4, bool force_ipv6) {
     fds[1].events = POLLIN | POLLOUT;
     fds[1].revents = 0;
 
-    cout << "Connected to server at " << server_address << ":" << server_port << endl;
+    if (res->ai_family == AF_INET) {
+        sockaddr_in *ipv4 = (sockaddr_in *)res->ai_addr;
+        char ip_str[INET_ADDRSTRLEN];
+        if (inet_ntop(AF_INET, &ipv4->sin_addr, ip_str, sizeof(ip_str)) == NULL) {
+            print_error("inet_ntop failed: " + string(strerror(errno)));
+            freeaddrinfo(res);
+            close(socket_fd);
+            return -1;
+        }
+        server_ip = string(ip_str);
+    }
+    else {
+        sockaddr_in6 *ipv6 = (sockaddr_in6 *)res->ai_addr;
+        char ip_str[INET6_ADDRSTRLEN];
+        if (inet_ntop(AF_INET6, &ipv6->sin6_addr, ip_str, sizeof(ip_str)) == NULL) {
+            print_error("inet_ntop failed: " + string(strerror(errno)));
+            freeaddrinfo(res);
+            close(socket_fd);
+            return -1;
+        }
+        server_ip = string(ip_str);
+    }
+
+    cout << "Connected to " << server_ip << ":" << server_port << endl;
     freeaddrinfo(res);
     return socket_fd;
 }
 
-int Client::send_hello() { // TODO: tutaj tez czytj czy przupadkiem sie nie skonczyla gra!
-    string message = "HELLO " + player_id + "\r\n";
-    size_t pos = 0;
-    while (pos < message.size()) {
-        ssize_t bytes_sent = send(
-            socket_fd, 
-            message.c_str() + pos, 
-            message.size() - pos, 
-            0
-        );
-        if (bytes_sent < 0) {
-            print_error("Error while sending HELLO message.");
-            close(socket_fd);
-            return -1;
-        }
-        pos += (size_t) bytes_sent;
-    }
+int Client::send_hello() {
+    messages_to_send.push("HELLO " + player_id + "\r\n");
     return 0;
 }
 
@@ -265,6 +281,9 @@ int Client::auto_play() {
     while (!got_coeff) {
         fds[1].revents = 0;
         fds[1].events = POLLIN;
+        if (!messages_to_send.empty()) {
+            fds[1].events |= POLLOUT; // I have to send Hello
+        }
         int poll_status = poll(fds + 1, 1, -1);
         if (poll_status < 0) {
             print_error("Poll error occurred: " + string(strerror(errno)));
@@ -279,7 +298,13 @@ int Client::auto_play() {
                 return 0; // Game ended
             }
         }
+        if (fds[1].revents & POLLOUT) {
+            if (!messages_to_send.empty()) {
+                messages_to_send.send_message(fds[1].fd);
+            }
+        }
     }
+
 
     // now I have the coefficients
     // I send PUT 0 0 to get to know k
@@ -288,6 +313,9 @@ int Client::auto_play() {
     while (!got_response) {
         fds[1].revents = 0;
         fds[1].events = POLLIN;
+        if (!messages_to_send.empty()) {
+            fds[1].events |= POLLOUT; 
+        }
         int poll_status = poll(fds + 1, 1, -1);
         if (poll_status < 0) {
             print_error("Poll error occurred: " + string(strerror(errno)));
@@ -302,12 +330,20 @@ int Client::auto_play() {
                 return 0; // Game ended
             }
         }
+        if (fds[1].revents & POLLOUT) {
+            cerr  << "Sending PUT 0 0\r\n" << endl;
+            if (!messages_to_send.empty()) {
+                messages_to_send.send_message(fds[1].fd);
+            }
+        }
     }
+
+    cout << "PUT 0 0 WORKED!!!" << endl;
     // now that i know k I calculate values of the polynomial
     // at all point 0, 1, ..., k and sort them
     vector<pair<double, int32_t>> values((size_t) k + 1);
 
-    for (size_t i = 0; i < (size_t) k; ++i) {
+    for (size_t i = 0; i <= (size_t) k; ++i) {
         double power = 1.0;
         for (size_t j = 0; j <= (size_t) n; ++j) {
             values[i].first += coefficients[j] * power;

@@ -14,10 +14,10 @@ string to_proper_rational(double val) {
 }
 
 int64_t get_arg(char arg, map<char, char*> &args, int64_t def, int64_t min, int64_t max) {
-    if (!args.contains('p')) {
+    if (!args.contains(arg)) {
         return def;
     }
-    char* str = args['p'];
+    char* str = args[arg];
     size_t len = strlen(str);
     int64_t res = 0;
     
@@ -58,7 +58,7 @@ bool is_id_valid(const string& id) {
 }
 
 int install_signal_handler(int signal, void (*handler)(int), int flags) {
-    struct sigaction action;
+    struct sigaction action{};
     sigset_t block_mask;
 
     if(sigemptyset(&block_mask) < 0) {
@@ -117,6 +117,9 @@ vector<double> parse_coefficients(string &coeff_str) {
         string coeff = coeff_str.substr(i, next_space - i);
         coeffs.push_back(get_double(coeff));
         i = next_space + 1;
+        if (i == 0) {
+            break;
+        }
     }
     coeff_str += "\r\n"; // Restore "\r\n"
     return coeffs;

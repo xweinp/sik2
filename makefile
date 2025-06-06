@@ -1,7 +1,7 @@
 CXX = g++
 CXXFLAGS = -std=c++20 -Wall -Wextra -Wpedantic -Wshadow \
 			  -Wnon-virtual-dtor -Woverloaded-virtual \
-			  -Wconversion -O2
+			  -Wconversion -ggdb3
 
 TARGETS = approx-client approx-server
 

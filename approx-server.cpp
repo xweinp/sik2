@@ -32,9 +32,9 @@ static void catch_int(int sig) {
 // TODO: endlajny!
 
 int main(int argc, char* argv[]) {
-    if(install_signal_handler(SIGINT, catch_int, SA_RESTART)) {
-        return 1;
-    }
+    // if (install_signal_handler(SIGINT, catch_int, 0)) {
+    //     return 1;
+    // }
 
     map<char, char*> args;
 
@@ -57,6 +57,7 @@ int main(int argc, char* argv[]) {
             return 1;
         }
         args[argv[i][1]] = argv[i + 1];
+        cout << "Option: " << argv[i] << " Value: " << argv[i + 1] << endl;
     }
 
     int32_t port;
@@ -86,6 +87,7 @@ int main(int argc, char* argv[]) {
     }
 
     while (!finish) {
+        cout << "Starting a new game..." << endl;
         server.play_a_game();
         if (!finish) {
             sleep(1); // Sleep for 1 second before the next game

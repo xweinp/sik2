@@ -82,7 +82,6 @@ int main(int argc, char* argv[]) {
     if (client.connect_to_server(force_ipv4, force_ipv6) < 0) {
         return 1;
     }
-    cout << "Connected to " + server_address + ":" + to_string(port) + "\n";
 
     if(client.send_hello() < 0) {
         return 1;

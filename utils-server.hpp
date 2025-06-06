@@ -106,7 +106,7 @@ struct Player {
     int read_message(const string& msg, ifstream &file);
     
     bool has_ready_message_to_send() const {
-        return !messages_to_send.ready_message();
+        return messages_to_send.ready_message();
     }
     // Returns: -1 iff error, 1 iff the whole message was sent, 0 otherwise
     int send_message() {

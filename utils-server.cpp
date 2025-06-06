@@ -10,8 +10,16 @@ int ipv6_enabled_sock(uint16_t port) {
         return -1; // Cannot create socket
     }
 
+    int opt = 1;
+    int res= setsockopt(socket_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    if (res < 0) {
+        close(socket_fd);
+        return -1; // Cannot set SO_REUSEADDR
+    }
+
+
     int off = 0;
-    int res = setsockopt(
+    res = setsockopt(
         socket_fd, 
         IPPROTO_IPV6, 
         IPV6_V6ONLY, 
@@ -57,12 +65,19 @@ int ipv4_only_sock(uint16_t port) {
         return -1; // Cannot create socket
     }
 
+    int opt = 1;
+    int res= setsockopt(socket_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    if (res < 0) {
+        close(socket_fd);
+        return -1; // Cannot set SO_REUSEADDR
+    }
+
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = htonl(INADDR_ANY);
     addr.sin_port = htons(port);
 
-    int res = bind(
+    res = bind(
         socket_fd,
         (sockaddr*)&addr,
         sizeof(addr)
@@ -157,14 +172,18 @@ tuple<string, string> get_point_and_value(const string& msg) {
 }
 
 bool is_put(const string& msg) {
-    bool pref_suf =   msg.size() > 9 and 
+    bool pref_suf = msg.size() > 8 and 
         msg.substr(0, 4) == "PUT " and 
         msg.substr(msg.size() - 2, 2) == "\r\n";
-    
     if (!pref_suf) {
         return false;
     }
-    size_t point_len = msg.find(' ', 4) - 4;
+    size_t sep = msg.find(' ', 4);
+    if (sep == string::npos) {
+        return false;
+    }
+
+    size_t point_len = sep - 4;
     string point = msg.substr(4, point_len);
     
     size_t value_start = 4 + point_len + 1;
@@ -210,12 +229,15 @@ void MessageQueue::get_current() {
     messages.pop();
 }
 bool MessageQueue::currently_sending() const {
-    return current_message.empty();
+    return !current_message.empty();
 }
 bool MessageQueue::empty() const {
     return current_message.empty() and messages.empty();
 }
 bool MessageQueue::ready_message() const {
+    if (!current_message.empty()) {
+        return true; // We are currently sending a message.
+    }
     if (messages.empty()) {
         return false;
     }
@@ -233,6 +255,7 @@ int MessageQueue::send_message(int socket_fd) {
         current_message.data() + current_pos,
         current_message.size() - current_pos
     );
+    
     if (sent_len < 0) {
         print_error("Cannot send message to client. errno: " + to_string(errno));
         return -1;
@@ -334,6 +357,9 @@ int Player::read_message(const string& msg, ifstream &file) {
     // There is at lest one full message
     const string& first_message = messages[0];
     
+    for (string s: messages) {
+        cerr << "Received message: " << s << endl;
+    }
     if (!messages_to_send.empty()) {
         // We have not sent all replies yet.
         started_before_reply = true;
@@ -342,6 +368,7 @@ int Player::read_message(const string& msg, ifstream &file) {
     if (!helloed) {
         // First message must be a HELLO.
         if (!proper_hello(first_message)) {
+            cerr << 'a' << endl;
             print_error_bad_message(first_message);
             return -1;
         }
@@ -350,7 +377,6 @@ int Player::read_message(const string& msg, ifstream &file) {
             id = id_from_hello(first_message);
             n_small_letters = get_no_small_letters(id);
             helloed = true;
-                
             cout << to_string_wo_id() << " is now known as " << id << "." << endl;
             string coeff = make_coeff(file);
             calc_goal_from_coef(coeff);
@@ -360,6 +386,7 @@ int Player::read_message(const string& msg, ifstream &file) {
     else if (!is_put(first_message)) {
         // This is not even a proper PUT message.
         // I just print ERROR and ignore it.
+        cerr << 'b' << endl;
         print_error_bad_message(first_message);
         started_before_reply = false; // Reset the flag.
     }
@@ -440,7 +467,6 @@ void Player::print_error_bad_message(const string& msg) {
 void Player::calc_goal_from_coef(string &coeff) {
     size_t k = approx.size() - 1;
     goal.resize(k + 1);
-
     vector<double> coeffs = parse_coefficients(coeff);
     size_t n = coeffs.size();
     for (size_t i = 0; i <= k; ++i) {
@@ -540,14 +566,14 @@ void Server::accept_new_connection() {
         return;
     }
 
-    cout << "New client " << client.ip << ":" << client.port << "." << endl;
+    cout << "New client [" << client.ip << "]:" << client.port << "." << endl;
 
     pollfd client_fd_struct{};
     client_fd_struct.fd = client.fd;
     client_fd_struct.events = POLLIN; 
     client_fd_struct.revents = 0;
-    pollvec.add_client(client_fd_struct);
 
+    pollvec.add_client(client_fd_struct);
     players.add_player(client);
 }
 
@@ -597,17 +623,11 @@ void Server::finish_game() {
 
 void Server::play_a_game() {
     counter_m = 0;
-    TimePoint next_event = steady_clock::now() + seconds(10); // Joke
-    bool has_next_event = false;
+    TimePoint next_event = steady_clock::now() + seconds(1);
 
     while (counter_m < m and !(*finish_flag)) {
-        if (next_event <= steady_clock::now()) {
-            has_next_event = false;
-        }
-        int timeout = -1;
-        if (has_next_event) {
-            timeout = max(0, (int)time_diff(steady_clock::now(), next_event));
-        }
+        int timeout = max(0, (int)time_diff(steady_clock::now(), next_event));
+
         int poll_status = poll(
             pollvec.pollfds.data(), 
             (nfds_t) pollvec.size(),
@@ -625,7 +645,7 @@ void Server::play_a_game() {
         // I can have some events POLLIN or POLLOUT.
         // I can also have timeout due to a messege I'm supposed to send right now.
 
-        TimePoint new_next_event = steady_clock::now() + seconds(10);
+        TimePoint new_next_event = steady_clock::now() + seconds(1);
 
         // First I accept new connection. (if there is any)
         accept_new_connection();
@@ -634,7 +654,8 @@ void Server::play_a_game() {
         for (size_t i = 1; i < pollvec.size(); ++i) {
             auto &pollfd = pollvec[i]; 
             auto &client = players[i];
-            
+            pollfd.events = POLLIN; // Reset events to POLLIN for the next poll 
+
             if ((pollfd.revents & (POLLIN | POLLERR))) {
                 // read
                 ssize_t read_len = read(
@@ -680,6 +701,7 @@ void Server::play_a_game() {
             }
             if ((pollfd.revents & POLLOUT)) {
                 while (client.has_ready_message_to_send()) {
+                    
                     if (client.send_message() != 1) {
                         // It reutns 1 iff the whole message was sent.
                         break;
@@ -687,8 +709,7 @@ void Server::play_a_game() {
                 }
             }
             pollfd.revents = 0;
-            pollfd.events = POLLIN; // Reset events to POLLIN for the next poll 
-            has_next_event = false;
+            
 
             if (!client.helloed) {
                 if (client.connected_timestamp + seconds(3) <= steady_clock::now()) {
@@ -703,7 +724,6 @@ void Server::play_a_game() {
                     new_next_event, 
                     client.connected_timestamp + seconds(3)
                 );
-                has_next_event = true; 
             }   
 
             if (!client.messages_to_send.empty()) {
@@ -716,7 +736,6 @@ void Server::play_a_game() {
                     new_next_event,
                     client.messages_to_send.get_ready_time() // First message to send
                 );
-                has_next_event = true; 
             }    
         }
 
