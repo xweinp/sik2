@@ -76,27 +76,29 @@ struct MessageQueue {
         auto now = steady_clock::now();
         return messages.top().first <= now;
     }
-    string get_ready_message() {
-        return messages.top().second;
+    Msg get_ready_message() {
+        return messages.top();
     }
-    void send_message(int socket_fd) {
-        auto msg = get_ready_message();
+    // Returns: -1 iff error, 1 iff the whole message was sent, 0 otherwise
+    int send_message(int socket_fd) {
+        auto msg = get_ready_message().second;
         int sent_len = write(
             socket_fd, 
             msg.c_str() + top_message_pos,
             msg.size() - top_message_pos
         );
         if (sent_len < 0) {
-            cout << "ERROR: Cannot send message to client.\n";
-            // TODO: co w takim errorze?
-            return;
+            print_error("Cannot send message to client. errno: " + to_string(errno));
+            return -1;
         }
         top_message_pos += sent_len;
         if (top_message_pos == msg.size()) {
             // We have sent the whole message.
             pop();
             top_message_pos = 0; // Reset position for the next message.
-        }   
+            return 1;
+        }
+        return 0;
     }
 };
 
@@ -137,156 +139,32 @@ struct Client {
     string ip;
     int32_t port;
 
+    int32_t n_proper_puts = 0; 
+
     TimePoint connected_timestamp;
     
-    int set_port_and_ip() {
-        if (addr.ss_family == AF_INET) { //ipv4
-            const sockaddr_in *addr4 = (sockaddr_in*)(&addr);
-            const in_addr *ia = (in_addr*)(&addr4->sin_addr);
-            char buff[INET_ADDRSTRLEN] = {0};
-
-            if (!inet_ntop(AF_INET, ia, buff, sizeof(buff))) {
-                print_error("inet_ntoa exited with error.");
-                return -1;
-            }
-            ip = string(buff);
-            port = ntohs(addr4->sin_port);
-            return 0;
-        }
-        else {
-            const sockaddr_in6 *addr6 = (sockaddr_in6*)(&addr);
-            const in6_addr *ia = (in6_addr*)(&addr6->sin6_addr);
-            char buff[INET6_ADDRSTRLEN] = {0};
-
-            if (!inet_ntop(AF_INET6, ia, buff, sizeof(buff))) {
-                print_error("inet_ntoa exited with error.");
-                return -1;
-            }
-            ip = string(buff);
-            port = ntohs(addr6->sin6_port);
-            return 0;
-        }
-    }
-
-    void read_message(const string& msg, int k) {
-        // every message ends with "\r\n"
-        size_t old_len = buffered_message.size();
-        buffered_message += msg;
-        size_t erase_pref = 0;
-        vector<string> messages;
-
-        for (size_t i = old_len > 0? old_len - 1: 0; i + 1 < buffered_message.size(); ++i) {
-            if (buffered_message[i] == '\r' and buffered_message[i + 1] == '\n') {
-                // Found end of a message.
-                messages.push_back(buffered_message.substr(erase_pref, i + 2 - erase_pref));
-                erase_pref = i + 2; // Erase everything before this point.
-            }
-        }
-        buffered_message.erase(0, erase_pref);
-
-        if (messages.empty()) {
-            if (buffered_message.empty()) {
-                started_before_reply = false;
-            }
-            else if (messages_to_send.empty()) {
-                // We have not sent any replies yet.
-                started_before_reply = true;
-            }
-            started_before_reply |= !(buffered_message.empty() or messages_to_send.empty());
-            return;
-        }
-        // There is at lest one full message
-        const string& first_message = messages[0];
-
-        if (!messages_to_send.empty()) {
-            // We have not sent all replies yet.
-            started_before_reply = true;
-        }
-
-        if (!helloed) {
-            // First message must be a HELLO.
-            if (!proper_hello(first_message)) {
-                cout << "ERROR: First message is not a proper HELLO.\n";
-                // TODO: handle errors properly.
-                // TODO: i think i have to disconnect the client here.
-            }
-            else {
-                // First message is a proper HELLO.
-                id = id_from_hello(first_message);
-                n_small_letters = get_n_small_letters(id);
-                helloed = true;
-                
-                // TODO: some log about new player?
-                cout << "New player: " << id << "\n";
-                messages_to_send.push(make_coeff(), 0);
-            }
-
-        }
-        else if (!is_put(first_message)) {
-            // This is not even a proper PUT message.
-            // I just print ERROR and ignore it.
-            // TODO: handle errors properly.
-            cout << "ERROR: Message is not a PUT message.\n";
-            started_before_reply = false; // Reset the flag.
-        }
-        else if (started_before_reply) {
-            // First message started before we got a reply.
-            
-            // First message is a PUT message.
-            // It was sent before the player received a reply so I resend penalty.
-            messages_to_send.push(make_penalty(), 0);
-            // If the message is a bad put then we also send bad_put.
-            auto [point, value] = get_point_value(first_message);
-            if (is_bad_put(point, value, k)) {
-                messages_to_send.push(make_bad_put(), 1);
-            }
-            started_before_reply = false; // Reset the flag.
-        }
-        else {
-            // First message is a PUT message.
-            // If the message is a bad put then we also send bad_put.
-            auto [point, value] = get_point_value(first_message);
-            if (is_bad_put(point, value, k)) {
-                messages_to_send.push(make_bad_put(), 1);
-            }
-            else {
-                messages_to_send.push(make_state(), n_small_letters);
-            }
-        }
-
-        for (int i = 1; i < messages.size(); ++i) {
-            
-            const string& msg = messages[i];
-            if (!is_put(msg)) {
-                // This is not even a proper PUT message.
-                // I just print ERROR and ignore it.
-                // TODO: handle errors properly.
-                cout << "ERROR: Message is not a PUT message.\n";
-                continue; // Ignore this message.
-            }
-            auto [point, value] = get_point_value(msg);
-            if (is_bad_put(point, value, k)) {
-                messages_to_send.push(make_bad_put(), 1);
-            }
-            if (messages_to_send.empty()) {
-                // If the message is a bad put then we also send bad_put.
-                messages_to_send.push(make_state(), n_small_letters);
-            }
-            else {
-                // We have already sent a reply.
-                messages_to_send.push(make_penalty(), 0);
-            }
-        }
-        if (!buffered_message.empty() and !messages_to_send.empty()) {
-            // We have some buffered message and we have sent a reply.
-            started_before_reply = true;
-        }
-    }
+    int set_port_and_ip();
+    void read_message(const string& msg, int k);
+    
     bool has_ready_message_to_send() const {
         return !messages_to_send.ready_message();
     }
-    void send_message() {
-        messages_to_send.send_message(fd);
+    // Returns: -1 iff error, 1 iff the whole message was sent, 0 otherwise
+    int send_message() {
+       return messages_to_send.send_message(fd);
+    }
+    string to_string_w_id() { // with id
+        return ip + ":" + to_string(port) + ", " + id != ""? id : "UNKNOWN";
+    }
+    string to_string_wo_id() {
+        return ip + ":" + to_string(port);
+    }
+    void print_error_bad_message(const string& msg) {
+        print_error(
+            "bad message from " + 
+            to_string_w_id() +
+            ": " + msg
+        );
     }
 };
 
@@ -326,27 +204,7 @@ struct Pollvec {
         return pollfds[i];
     }
 
-    int set_up() {
-        int socket_fd = ipv6_enabled_sock(listen_port);
-        if (socket_fd < 0) {
-            socket_fd = ipv4_only_sock(listen_port);
-        }
-        if (socket_fd < 0) {
-            print_error("Cannot create listening socket.");
-            return -1;
-        }
-        if (fcntl(socket_fd, F_SETFL, O_NONBLOCK)) {
-            close(socket_fd);
-            print_error("Cannot set listening socket to non-blocking mode.");
-            return -1;
-        }
-        pollfd listen_fd{};
-        listen_fd.fd = socket_fd;
-        listen_fd.events = POLLIN;
-        listen_fd.revents = 0;
-        pollfds.push_back(listen_fd);
-        return 0;
-    }
+    int set_up();
 
     void add_client(pollfd client) {
         pollfds.push_back(client);
@@ -370,72 +228,24 @@ struct Server {
     char* filename;
     bool *finish_flag; 
     ifstream file;
+    const size_t buff_len = 5000;
+    string buffer;
     
     Server(
         int32_t listen_port,  int32_t k, 
         int32_t n, int32_t m, char *filename,
         bool *finish_flag
     ) : pollvec(listen_port), k(k), m(m), n(n), 
-        filename(filename), finish_flag(finish_flag) {} 
+        filename(filename), finish_flag(finish_flag), 
+        buffer(buff_len, '\0') {} 
 
-    int set_up() {
-        if (pollvec.set_up()) {
-            // polvec prints error
-            return -1; 
-        }
-        file.open(filename);
-        if (!file) {
-            print_error("Cannot open file: " + string(filename));
-            return -1;
-        }
-        return 0;
-    }
+    int set_up();
 
-    void accept_new_connection() {
-        auto &listen_pollfd = pollvec[0];
-        if ((listen_pollfd.revents & POLLIN) == 0) {
-            return;
-        }
-        // TODO: limit wielkosci tablicy poll!
-
-        listen_pollfd.revents = 0; // Reset revents for the next poll.
-
-        Client client;
-        client.addr_len = sizeof(client.addr);
-        client.fd = accept(
-            listen_pollfd.fd, 
-            (sockaddr*)&client.addr, 
-            &client.addr_len
-        );
-        client.connected_timestamp = steady_clock::now();
-
-        if (client.fd < 0) {
-            print_error("Cannot accept new connection. errno: " + to_string(errno));
-            return;
-        }
-        if (fcntl(client.fd, F_SETFL, O_NONBLOCK)) {
-            close(client.fd);
-            print_error("Cannot set client socket to non-blocking mode. errno: " + to_string(errno));
-            return;
-        }
-        if (client.set_port_and_ip()) {
-            return;
-        }
-
-        cout << "New client " << client.ip << ":" << client.port << "." << endl;
-
-        pollfd client_fd_struct{};
-        client_fd_struct.fd = client.fd;
-        client_fd_struct.events = POLLIN; 
-        client_fd_struct.revents = 0;
-        pollvec.add_client(client_fd_struct);
-
-        players.add_player(client);
-    }
+    void accept_new_connection();
 
     void play_a_game() {
         counter_m = 0;
-        TimePoint next_event = steady_clock::now() + years(10); // Joke
+        TimePoint next_event = steady_clock::now() + seconds(10); // Joke
         bool has_next_event = false;
         bool instant_event = false;
 
@@ -443,11 +253,14 @@ struct Server {
             if (next_event <= steady_clock::now()) {
                 has_next_event = false;
             }
-            
+            int timeout = -1;
+            if (has_next_event) {
+                timeout = max(0, (int)time_diff(steady_clock::now(), next_event));
+            }
             int poll_status = poll(
                 pollvec.pollfds.data(), 
                 (nfds_t) pollvec.size(),
-                has_next_event? time_diff(steady_clock::now(), next_event) : -1
+                timeout
             );
 
             if (poll_status < 0) {
@@ -461,21 +274,97 @@ struct Server {
             // I can have some events POLLIN or POLLOUT.
             // I can also have timeout due to a messege I'm supposed to send right now.
 
+            TimePoint new_next_event = steady_clock::now() + seconds(10);
+
             // First I accept new connection. (if there is any)
             accept_new_connection();
+            pollvec[0].revents = 0; 
             
             for (size_t i = 1; i < pollvec.size(); ++i) {
-                auto &pollfd = pollvec[i];
+                auto &pollfd = pollvec[i]; 
+                auto &client = players[i];
                 
                 if ((pollfd.revents & (POLLIN | POLLERR))) {
                     // read
+                    ssize_t read_len = read(
+                        pollfd.fd,
+                        buffer.data(),
+                        buff_len
+                    );
+
+                    if (read_len < 0) {
+                        print_error(
+                            "Reading message from " + 
+                            client.ip + ":" + to_string(client.port) + 
+                            " result in error. Closing connection"
+                        );
+                        // TODO: odejmij jego puty od counter_m
+                        close(pollfd.fd);
+                        pollvec.delete_client(i);
+                        players.delete_client(i);
+                        --i;
+                        continue; 
+                    }
+                    else if (read_len == 0) {
+                        cout << "Client " << client.to_string_w_id() << " disconnected." << endl;
+                        close(pollfd.fd);
+                        // TODO: odejmij jego puty od counter_m
+                        close(pollfd.fd);
+                        pollvec.delete_client(i);
+                        players.delete_client(i);
+                        --i;
+                        continue; 
+                    }
+                    else {
+                        client.read_message(buffer.substr(0, read_len), k);
+                    }
+
                 }
                 if ((pollfd.revents & POLLOUT)) {
-                    // write
+                    while (client.has_ready_message_to_send()) {
+                        if (client.send_message() != 1) {
+                            // It reutns 1 iff the whole message was sent.
+                            break;
+                        }
+                    }
                 }
-                // update next event
+                pollfd.revents = 0;
+                pollfd.events = POLLIN; // Reset events to POLLIN for the next poll 
+                has_next_event = false;
+
+                if (!client.helloed) {
+                    if (client.connected_timestamp + seconds(3) <= steady_clock::now()) {
+                        cout << "Client " << client.to_string_w_id() 
+                             << " did not send HELLO in time. Disconnecting." << endl;
+                        close(pollfd.fd);
+                        pollvec.delete_client(i);
+                        players.delete_client(i);
+                        --i;
+                        continue; 
+                    }
+
+                    new_next_event = min(
+                        new_next_event, 
+                        client.connected_timestamp + seconds(3)
+                    );
+                    has_next_event = true; 
+                }   
+
+                if (!client.messages_to_send.empty()) {
+                    if (client.has_ready_message_to_send()) {
+                        // If there are messages to send, set POLLOUT
+                        pollfd.events |= POLLOUT; 
+                    }
+                    pollfd.events |= POLLOUT; // Set POLLOUT if there are messages to send
+                    new_next_event = min(
+                        new_next_event, 
+                        client.messages_to_send.get_ready_message().first // First message to send
+                    );
+                    has_next_event = true; 
+                }    
             }
 
+            next_event = new_next_event;
         }
     }
 };

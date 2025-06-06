@@ -26,6 +26,10 @@ static void catch_int(int sig) {
     print_error("Caught SIGINT, finishing the server.");
 }
 
+
+// TODO: size_t to unsigned! chyab gdzies z tym zjebalem! (niekoniecznie w tmy pliku)
+// TODO: endlajny!
+
 int main(int argc, char* argv[]) {
     if(install_signal_handler(SIGINT, catch_int, SA_RESTART)) {
         return 1;
@@ -76,58 +80,6 @@ int main(int argc, char* argv[]) {
     f = args['f'];
 
     Server server(port, k, n, m, f, &finish);
-
-
-    do {
-        if (finish) {
-            // TODO: close all sockets or idk
-        }
-        
-        if (poll_status ==) {
-            // TODO: wtf is oging on here?
-            continue;
-        }
-        
-        
-        // New connection.
-        try {
-            pollfds.accept_new_connection();
-        }
-        catch (const runtime_error &e) {
-            cout << "ERROR: " << e.what() << "\n";
-            continue;
-        }
-        for (int i = 1; i < pollfds.size(); ++i) {
-            if (pollfds.pollfds[i].revents & POLLIN) {
-                // I can read from this buffers socket.
-
-                auto &player = players.get_player(i);
-                size_t len = read(
-                    player.fd, 
-                    buffer.data(), 
-                    buffer.size()
-                );
-                if (len < 0) {
-                    // TODO: handle errors
-                }
-                if (len == 0) {
-                    // Client disconnected.
-                    cout << "Client disconnected.\n";
-                    players.delete_client(i);
-                    pollfds.delete_client(i);
-                    continue;
-                }
-                player.read_message(buffer.substr(0, len), k);
-            }
-            if (pollfds.pollfds[i].revents & POLLOUT) {
-                // I can write if there is something to write.
-                auto &player = players.get_player(i);
-                if (player.has_ready_message_to_send()) {
-                    player.send_message();
-                }
-            }
-        }
-    } while (true);
 
     return 0;
 }
