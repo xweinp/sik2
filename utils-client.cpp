@@ -1,4 +1,6 @@
 #include <map>
+#include <queue>
+#include <math.h>
 
 #include "utils.hpp"
 #include "utils-client.hpp"
@@ -337,25 +339,46 @@ int Client::auto_play() {
         }
     }
 
-    cout << "PUT 0 0 WORKED!!!" << endl;
     // now that i know k I calculate values of the polynomial
     // at all point 0, 1, ..., k and sort them
-    vector<pair<double, int32_t>> values((size_t) k + 1);
+    using el = pair<pair<double, double>, int32_t>;
+    priority_queue<el, vector<el>, less<el>> val_que;
 
     for (size_t i = 0; i <= (size_t) k; ++i) {
         double power = 1.0;
+        double value = 0.0;
         for (size_t j = 0; j <= (size_t) n; ++j) {
-            values[i].first += coefficients[j] * power;
+            value += coefficients[j] * power;
             power *= (double) i;
         }
-        values[i].second = (int32_t) i;
+        val_que.push({{fabs(value), value}, (int32_t) i});
     }
-    sort(values.begin(), values.end());
     
     // now I send PUT messages for all points form largest to smallest
-    for (ssize_t i = (ssize_t) k; i >= 0; --i) {
-        string msg = "PUT " + to_string(values[i].second) + " " + to_proper_rational(values[i].first) + "\r\n";
-        messages_to_send.push(msg);
+    while (!val_que.empty()) {
+        auto values = val_que.top();
+        val_que.pop();
+        if (values.first.first >= 5) {
+            double val = 0;
+            if (values.first.second < 0) {
+                val = -5;
+            }
+            else {
+                val = 5;
+            }
+            string msg = "PUT " + to_string(values.second) + " " + to_proper_rational(val) + "\r\n";
+            messages_to_send.push(msg);
+
+            values.first.first -= val;
+            values.first.second -= val;
+            val_que.push(values);
+        }
+        else {
+            double val = values.first.second;
+            string msg = "PUT " + to_string(values.second) + " " + to_proper_rational(val) + "\r\n";
+            messages_to_send.push(msg);
+        }
+        
 
         while (!messages_to_send.empty()) {
             fds[1].revents = 0;

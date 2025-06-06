@@ -610,10 +610,10 @@ string Server::make_scoring() {
 
 void Server::finish_game() {
     string scoring = make_scoring();
-    for (size_t i = pollvec.size(); i; --i) {
+
+    for (size_t i = pollvec.size() - 1; i > 0; --i) {
         auto &client = players[i];
         if (!client.helloed) {
-            delete_client(i);
             continue;
         }
         client.send_scoring(scoring);
