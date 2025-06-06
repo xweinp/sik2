@@ -1,3 +1,4 @@
+#include <charconv> 
 #include "utils-server.hpp"
 
 int ipv6_enabled_sock(uint16_t port) {
@@ -264,7 +265,8 @@ int Client::set_port_and_ip() {
     }
 }
 
-void Client::read_message(const string& msg, int k, ifstream &file) {
+int Client::read_message(const string& msg, int k, ifstream &file) {
+    int res = 0;
     // every message ends with "\r\n"
     size_t old_len = buffered_message.size();
     buffered_message += msg;
@@ -303,7 +305,7 @@ void Client::read_message(const string& msg, int k, ifstream &file) {
         // First message must be a HELLO.
         if (!proper_hello(first_message)) {
             print_error_bad_message(first_message);
-            // TODO: zamykam to połączenie! potwierdzone z forum.
+            return -1;
         }
         else {
             // First message is a proper HELLO.
@@ -344,8 +346,11 @@ void Client::read_message(const string& msg, int k, ifstream &file) {
             messages_to_send.push(make_bad_put(point, value), 1);
         }
         else {
+            // Update the approximation.
             ++n_proper_puts;
-            messages_to_send.push(make_state(), n_small_letters);
+            approx[get_int(point, k)] = get_double(value);
+            messages_to_send.push(make_state(approx), n_small_letters);
+            res = 1;
         }
     }
 
@@ -366,7 +371,10 @@ void Client::read_message(const string& msg, int k, ifstream &file) {
         if (messages_to_send.empty()) {
             // If the message is a bad put then we also send bad_put.
             ++n_proper_puts;
-            messages_to_send.push(make_state(), n_small_letters);
+            // Update the approximation.
+            approx[get_int(point, k)] = get_double(value);
+            messages_to_send.push(make_state(approx), n_small_letters);
+            res = 1;
         }
         else {
             // We have already sent a reply.
@@ -377,6 +385,7 @@ void Client::read_message(const string& msg, int k, ifstream &file) {
         // We have some buffered message and we have sent a reply.
         started_before_reply = true;
     }
+    return res;
 }
 
 int Pollvec::set_up() {
@@ -424,7 +433,7 @@ void Server::accept_new_connection() {
 
     listen_pollfd.revents = 0; // Reset revents for the next poll.
 
-    Client client;
+    Client client(n);
     client.addr_len = sizeof(client.addr);
     client.fd = accept(
         listen_pollfd.fd, 
@@ -455,4 +464,12 @@ void Server::accept_new_connection() {
     pollvec.add_client(client_fd_struct);
 
     players.add_player(client);
+}
+
+string to_proper_rational(double val) {
+    static const size_t buff_len = 1000; 
+    static char buffer[buff_len];
+    
+    auto res = to_chars(buffer, buffer + buff_len, val);
+    return string(buffer, res.ptr - buffer);
 }

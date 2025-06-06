@@ -20,7 +20,7 @@ int ipv4_only_sock(uint16_t port);
 bool proper_hello(const string& msg);
 string id_from_hello(const string& msg);
 size_t get_n_small_letters(const string& str);
-
+string to_proper_rational(double val);
     
 using TimePoint = steady_clock::time_point;
 using Msg = std::pair<TimePoint, string>;
@@ -44,9 +44,13 @@ string make_coeff(ifstream &file) {
     return res;
 }
 
-string make_state() {
-   // content = "STATE\r\n";
-    // TODO: wtf???
+string make_state(const vector<double> &approx) {
+    string res = "STATE ";
+    for (double val : approx) {
+        res += to_proper_rational(val) + " ";
+    }
+    res += "\r\n";
+    return res;
 }
 
 
@@ -140,8 +144,13 @@ struct Client {
 
     TimePoint connected_timestamp;
     
+    vector<double> approx;
+
+    Client(size_t k) : approx(k + 1, 0.0) {}
+
     int set_port_and_ip();
-    void read_message(const string& msg, int k, ifstream &file);
+    // returns: -1 iff we should disconnect the client, 1 iff a proper put was made, 0 otherwise
+    int read_message(const string& msg, int k, ifstream &file);
     
     bool has_ready_message_to_send() const {
         return !messages_to_send.ready_message();
@@ -240,6 +249,12 @@ struct Server {
 
     void accept_new_connection();
 
+    void delete_client(size_t i) {
+        counter_m -= players[i].n_proper_puts; 
+        pollvec.delete_client(i);
+        players.delete_client(i);
+    }
+
     void play_a_game() {
         counter_m = 0;
         TimePoint next_event = steady_clock::now() + seconds(10); // Joke
@@ -295,25 +310,30 @@ struct Server {
                             client.ip + ":" + to_string(client.port) + 
                             " result in error. Closing connection"
                         );
-                        // TODO: odejmij jego puty od counter_m
-                        close(pollfd.fd);
-                        pollvec.delete_client(i);
-                        players.delete_client(i);
+                        delete_client(i);
                         --i;
                         continue; 
                     }
                     else if (read_len == 0) {
                         cout << "Client " << client.to_string_w_id() << " disconnected." << endl;
-                        close(pollfd.fd);
-                        // TODO: odejmij jego puty od counter_m
-                        close(pollfd.fd);
-                        pollvec.delete_client(i);
-                        players.delete_client(i);
+                        delete_client(i);
                         --i;
                         continue; 
                     }
                     else {
-                        client.read_message(buffer.substr(0, read_len), k, file);
+                        int read_res = client.read_message(buffer.substr(0, read_len), k, file);
+                        if (read_res == - 1) {
+                           delete_client(i);
+                            --i;
+                            continue;
+                        }
+                        else if (read_res == 1) {
+                            // A proper PUT was made.
+                            ++counter_m;
+                            if (counter_m == m) {
+                                // TODO: zakoncz gre
+                            }
+                        }
                     }
 
                 }
@@ -333,9 +353,7 @@ struct Server {
                     if (client.connected_timestamp + seconds(3) <= steady_clock::now()) {
                         cout << "Client " << client.to_string_w_id() 
                              << " did not send HELLO in time. Disconnecting." << endl;
-                        close(pollfd.fd);
-                        pollvec.delete_client(i);
-                        players.delete_client(i);
+                        delete_client(i);
                         --i;
                         continue; 
                     }
