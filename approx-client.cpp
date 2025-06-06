@@ -66,7 +66,7 @@ int main(int argc, char* argv[]) {
     player_id = args['u'];
 
     if (!is_id_valid(player_id)) {
-        cout << "ERROR: invalid player ID '" << player_id << "'.\n";
+        print_error("invalid player ID '" + player_id + "'.");
         return 1;
     }
     server_address = args['s'];

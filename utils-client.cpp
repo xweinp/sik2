@@ -10,7 +10,6 @@ bool check_mandatory_option(const map<char, char*> &args, char option) {
         cout << "ERROR: option -" << option << " is mandatory.\n";
         return false;
     }
-    // TODO: check player naems and scores
     return true;
 }
 
@@ -82,7 +81,7 @@ void ClientMessageQueue::send_message(int socket_fd) {
         current_message.size() - current_pos
     );
     if (bytes_sent < 0) {
-        print_error("Senging message failed: " + string(strerror(errno)));
+        print_error("senging message failed: " + string(strerror(errno)));
         return;
     }
     current_pos += (size_t) bytes_sent;
@@ -139,7 +138,7 @@ int Client::connect_to_server(bool force_ipv4, bool force_ipv6) {
         0
     );
     if (socket_fd < 0) {
-        print_error("Cannot create socket: " + string(strerror(errno)));
+        print_error("cannot create socket: " + string(strerror(errno)));
         freeaddrinfo(res);
         return -1;
     }
@@ -150,7 +149,7 @@ int Client::connect_to_server(bool force_ipv4, bool force_ipv6) {
         res->ai_addrlen
     );
     if (ret < 0) {
-        print_error("Cannot connect to server: " + string(strerror(errno)));
+        print_error("cannot connect to server: " + string(strerror(errno)));
         freeaddrinfo(res);
         close(socket_fd);
         return -1;
@@ -183,7 +182,7 @@ int Client::connect_to_server(bool force_ipv4, bool force_ipv6) {
         server_ip = string(ip_str);
     }
 
-    cout << "Connected to " << server_ip << ":" << server_port << endl;
+    cout << "Connected to [" << server_ip << "]:" << server_port << endl;
     freeaddrinfo(res);
     return socket_fd;
 }
@@ -232,24 +231,30 @@ int Client::read_message() {
                 n = (int32_t) coefficients.size() - 1;
             } 
             else {
-                print_error("bad message from " + msg); // TODO: serwer ip i ports
-                return -1; // TODO zakoncz gre kodem 1!
+                print_error(
+                    "bad message from [" + server_ip + "]:" + to_string(server_port) + 
+                    ", " + player_id + ": " + msg
+                ); 
+                return -1;
             }
         }
         else {
             if (valid_bad_put(msg)) {
-                // TODO idk czy cos pisac
+                // Niesprecyzowano w tresci czy wypisywac tu cokolwiek
             } 
             else if (valid_penalty(msg)) {
-                // TODO idk czy cos pisac
+                // Niesprecyzowano w tresci czy wypisywac tu cokolwiek
             }
             else if (valid_state(msg)) {
                 got_response = true;
                 k = (int32_t) count(msg.begin(), msg.end(), ' ') - 1;
-                cout << "Received state: " << msg.substr(6, msg.size() - 8) << "." << endl;
+                cout << "Received state " << msg.substr(6, msg.size() - 8) << "." << endl;
             }
             else {
-                print_error("bad message from " + msg); // TODO: serwer ip i ports
+                print_error(
+                    "bad message from [" + server_ip + "]:" + to_string(server_port) + 
+                    ", " + player_id + ": " + msg
+                ); 
             }
         }
     }
@@ -273,6 +278,7 @@ int Client::read_from_stdin() {
         print_error("invalid input line: " + line);
         return 0; 
     }
+    cout << "Putting " << value << " in " << point_int << "." << endl;
     messages_to_send.push("PUT " + point + " " + value + "\r\n");
     return 0;
 }
@@ -310,7 +316,9 @@ int Client::auto_play() {
 
     // now I have the coefficients
     // I send PUT 0 0 to get to know k
+    cout << "Putting 0 in 0." << endl;
     messages_to_send.push("PUT 0 0\r\n");
+
     got_response = false;
     while (!got_response) {
         fds[1].revents = 0;
@@ -366,6 +374,7 @@ int Client::auto_play() {
             else {
                 val = 5;
             }
+            cout << "Putting " << val << " in " << values.second << "." << endl;
             string msg = "PUT " + to_string(values.second) + " " + to_proper_rational(val) + "\r\n";
             messages_to_send.push(msg);
 
@@ -375,6 +384,7 @@ int Client::auto_play() {
         }
         else {
             double val = values.first.second;
+            cout << "Putting " << val << " in " << values.second << "." << endl;
             string msg = "PUT " + to_string(values.second) + " " + to_proper_rational(val) + "\r\n";
             messages_to_send.push(msg);
         }
@@ -427,6 +437,7 @@ int Client::auto_play() {
     while (true) {
         if (got_response) {
             // I truy to send PUT 0 0\r\n
+            cout << "Putting 0 in 0." << endl;
             messages_to_send.push("PUT 0 0\r\n");
             while (!messages_to_send.empty()) {
                 fds[1].revents = 0;

@@ -420,7 +420,12 @@ int Player::read_message(const string& msg, ifstream &file) {
             // Update the approximation.
             ++n_proper_puts;
             update_approximation(point, value);
-            messages_to_send.push(make_state(approx), n_small_letters);
+            
+            string state = make_state(approx);
+            string print_state = state.substr(6, state.size() - 8); // Remove "STATE " and "\r\n"
+            cout << "Sending state " << print_state << " to player " << id << "." << endl;
+
+            messages_to_send.push(state, n_small_letters);
             res = 1;
         }
     }
@@ -444,7 +449,12 @@ int Player::read_message(const string& msg, ifstream &file) {
             ++n_proper_puts;
             // Update the approximation.
             update_approximation(point, value);
-            messages_to_send.push(make_state(approx), n_small_letters);
+
+            string state = make_state(approx);
+            string print_state = state.substr(6, state.size() - 8); // Remove "STATE " and "\r\n"
+            cout << "Sending state " << print_state << " to player " << id << "." << endl;
+
+            messages_to_send.push(state, n_small_letters);
             res = 1;
         }
         else {
@@ -460,7 +470,7 @@ int Player::read_message(const string& msg, ifstream &file) {
     return res;
 }
 
- bool Player::has_ready_message_to_send() const {
+bool Player::has_ready_message_to_send() const {
     return messages_to_send.ready_message();
 }
 // Returns: -1 iff error, 1 iff the whole message was sent, 0 otherwise
@@ -468,10 +478,10 @@ int Player::send_message() {
     return messages_to_send.send_message(fd);
 }
 string Player::to_string_w_id() { // with id
-    return ip + ":" + to_string(port) + ", " + id != ""? id : "UNKNOWN";
+    return "[" + ip + "]:" + to_string(port) + ", " + id;
 }
 string Player::to_string_wo_id() {
-    return ip + ":" + to_string(port);
+    return "[" + ip + "]:" + to_string(port);
 }
 
 void Player::print_error_bad_message(const string& msg) {
@@ -492,6 +502,7 @@ void Player::calc_goal_from_coef(string &coeff) {
     goal.resize(k + 1);
     vector<double> coeffs = parse_coefficients(coeff);
     size_t n = coeffs.size();
+
     for (size_t i = 0; i <= k; ++i) {
         // Calculate the polynomial value at i
         double power = 1.0;
@@ -537,12 +548,12 @@ int Pollvec::set_up() {
         socket_fd = ipv4_only_sock(listen_port);
     }
     if (socket_fd < 0) {
-        print_error("Cannot create listening socket.");
+        print_error("cannot create listening socket.");
         return -1;
     }
     if (fcntl(socket_fd, F_SETFL, O_NONBLOCK)) {
         close(socket_fd);
-        print_error("Cannot set listening socket to non-blocking mode.");
+        print_error("cannot set listening socket to non-blocking mode.");
         return -1;
     }
     pollfd listen_fd{};
@@ -577,7 +588,7 @@ int Server::set_up() {
     }
     file.open(filename);
     if (!file) {
-        print_error("Cannot open file: " + string(filename));
+        print_error("cannot open file: " + string(filename));
         return -1;
     }
     return 0;
@@ -588,7 +599,6 @@ void Server::accept_new_connection() {
     if ((listen_pollfd.revents & POLLIN) == 0) {
         return;
     }
-    // TODO: limit wielkosci tablicy poll!
 
     listen_pollfd.revents = 0; // Reset revents for the next poll.
 
@@ -602,12 +612,12 @@ void Server::accept_new_connection() {
     client.connected_timestamp = steady_clock::now();
 
     if (client.fd < 0) {
-        print_error("Cannot accept new connection. errno: " + to_string(errno));
+        print_error("Cannot accept new connection. Errno: " + to_string(errno));
         return;
     }
     if (fcntl(client.fd, F_SETFL, O_NONBLOCK)) {
         close(client.fd);
-        print_error("Cannot set client socket to non-blocking mode. errno: " + to_string(errno));
+        print_error("Cannot set client socket to non-blocking mode. Errno: " + to_string(errno));
         return;
     }
     if (client.set_port_and_ip()) {
@@ -652,6 +662,7 @@ string Server::make_scoring() {
         res += " " + i.first + " " + to_string(i.second);
     }
     res += "\r\n";
+
     return res;
 }
 
@@ -660,11 +671,10 @@ void Server::finish_game() {
 
     for (size_t i = pollvec.size() - 1; i > 0; --i) {
         auto &client = players[i];
-        if (!client.helloed) {
-            continue;
-        }
         client.send_scoring(scoring);
-        // TODO: jakis error jesli nie cale sie wyslalo?
+        if (client.messages_to_send.currently_sending()) {
+            print_error("could not send whole sconring to " + client.to_string_w_id() + ".");
+        }
         delete_client(i);
     }
 }
@@ -758,17 +768,11 @@ void Server::play_a_game() {
 
             if (!client.helloed) {
                 if (client.connected_timestamp + seconds(3) <= steady_clock::now()) {
-                    cout << "Player " << client.to_string_w_id() 
-                            << " did not send HELLO in time. Disconnecting." << endl;
+                    // Player didnt send HELLO in 3 seconds.
                     delete_client(i);
                     --i;
                     continue; 
                 }
-
-                new_next_event = min(
-                    new_next_event, 
-                    client.connected_timestamp + seconds(3)
-                );
             }   
 
             if (!client.messages_to_send.empty()) {

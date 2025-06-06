@@ -53,7 +53,7 @@ inline auto time_diff(TimePoint begin, TimePoint end) {
 struct MessageQueue {
     priority_queue<Msg, vector<Msg>, MsgComparator> messages; 
     size_t current_pos = 0;
-    string current_message; // TODO: napraw zeby sie nie mieszaly te wiadomosci!
+    string current_message; 
 
     void push(const string& msg, uint64_t delay_s);
     void get_current();
@@ -75,7 +75,7 @@ struct Player {
     sockaddr_storage addr{}; // Address of the client
     socklen_t addr_len; // Length of the address structure
 
-    string id;
+    string id = "UNKNOWN";
     size_t n_small_letters = 0; // Number of small letters in the id
     string buffered_message;
     bool started_before_reply = 0;
