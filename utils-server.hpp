@@ -17,10 +17,26 @@ using namespace std;
 
 int ipv6_enabled_sock(uint16_t port);
 int ipv4_only_sock(uint16_t port);
+
 bool proper_hello(const string& msg);
 string id_from_hello(const string& msg);
-size_t get_n_small_letters(const string& str);
-string to_proper_rational(double val);
+size_t get_no_small_letters(const string& str);
+
+string make_penalty(const string &point, const string &value);
+string make_bad_put(const string &point, const string &value);
+string make_coeff(ifstream &file);
+string make_state(const vector<double> &approx);
+
+
+bool is_integer(const string& str);
+bool is_proper_rational(const string& str);
+tuple<string, string> get_point_and_value(const string& msg);
+bool is_put(const string& msg);
+// I assume that the integer non-negative
+int get_int(const string& msg, int mx); // DONE
+double get_double(const string& msg); // DONE
+// This function assumes that the message is a PUT message checked by is_put.
+bool is_bad_put(const string& point, const string& value, unsigned int k); // DONE
     
 using TimePoint = steady_clock::time_point;
 using Msg = std::pair<TimePoint, string>;
@@ -29,92 +45,27 @@ struct MsgComparator {
         return a.first > b.first; 
     }
 };
-
-
-string make_penalty(const string &point, const string &value) {
-    return "PENALTY " + point + " " + value + "\r\n"; 
-}
-string make_bad_put(const string &point, const string &value) {
-    return "BAD_PUT " + point + " " + value + "\r\n";
-}
-
-string make_coeff(ifstream &file) {
-    string res;
-    getline(file, res); // TODO: ygh czy mam zakladac ze to moze zwrocic blad?
-    return res;
-}
-
-string make_state(const vector<double> &approx) {
-    string res = "STATE ";
-    for (double val : approx) {
-        res += to_proper_rational(val) + " ";
-    }
-    res += "\r\n";
-    return res;
-}
-
-
 auto time_diff(TimePoint begin, TimePoint end) {
     return duration_cast<milliseconds>(end - begin).count();
 }
 
 struct MessageQueue {
     priority_queue<Msg, vector<Msg>, MsgComparator> messages; 
-    size_t top_message_pos = 0; 
+    size_t current_pos = 0;
+    string current_message; // TODO: napraw zeby sie nie mieszaly te wiadomosci!
 
-    void push(const string& msg, int delay_s) {
-        auto now = steady_clock::now();
-        auto time_to_send = now + seconds(delay_s);
-        messages.push({time_to_send, msg});
-    }
-    void pop() {
-        messages.pop();
-    }
-    bool empty() const {
-        return messages.empty();
-    }
-    bool ready_message() const {
-        if (messages.empty()) {
-            return false;
-        }
-        auto now = steady_clock::now();
-        return messages.top().first <= now;
-    }
-    Msg get_ready_message() {
-        return messages.top();
-    }
+    void push(const string& msg, int delay_s);
+    void get_current();
+    bool currently_sending() const;
+    bool empty() const;
+    bool ready_message() const;
     // Returns: -1 iff error, 1 iff the whole message was sent, 0 otherwise
-    int send_message(int socket_fd) {
-        auto msg = get_ready_message().second;
-        int sent_len = write(
-            socket_fd, 
-            msg.c_str() + top_message_pos,
-            msg.size() - top_message_pos
-        );
-        if (sent_len < 0) {
-            print_error("Cannot send message to client. errno: " + to_string(errno));
-            return -1;
-        }
-        top_message_pos += sent_len;
-        if (top_message_pos == msg.size()) {
-            // We have sent the whole message.
-            pop();
-            top_message_pos = 0; // Reset position for the next message.
-            return 1;
-        }
-        return 0;
-    }
+    int send_message(int socket_fd);
+    TimePoint get_ready_time() const;
+    void send_scoring(const string &scoring, int socket_fd);
 };
 
-bool is_integer(const string& str); // DONE
-bool is_proper_rational(const string& str); // DONE
-tuple<string, string> get_point_value(const string& msg); // DONE
-bool is_put(const string& msg); // DONE
-// I assume that the integer non-negative
-int get_int(const string& msg, int mx); // DONE
-double get_double(const string& msg); // DONE
-// This function assumes that the message is a PUT message checked by is_put.
-bool is_bad_put(const string& point, const string& value, unsigned int k); // DONE
+
 
 
 
@@ -145,6 +96,7 @@ struct Client {
     TimePoint connected_timestamp;
     
     vector<double> approx;
+    double error = 0.0; 
 
     Client(size_t k) : approx(k + 1, 0.0) {}
 
@@ -165,12 +117,9 @@ struct Client {
     string to_string_wo_id() {
         return ip + ":" + to_string(port);
     }
-    void print_error_bad_message(const string& msg) {
-        print_error(
-            "bad message from " + 
-            to_string_w_id() +
-            ": " + msg
-        );
+    void print_error_bad_message(const string& msg);
+    void send_scoring(const string &scoring) {
+        messages_to_send.send_scoring(scoring, fd);
     }
 };
 
@@ -192,6 +141,7 @@ struct PlayerSet {
     }
 };
 
+
 struct Pollvec {
     // 0-th polldf is always the listening socket.
     // Other pollfds are clients.
@@ -200,9 +150,7 @@ struct Pollvec {
     Pollvec(int32_t _listen_port) : listen_port(_listen_port) {};
     ~Pollvec() {
         for (const auto& pfd : pollfds) {
-            if (pfd.fd >= 0) {
-                close(pfd.fd);
-            }
+            close(pfd.fd);
         }
     }
 
@@ -246,140 +194,27 @@ struct Server {
         buffer(buff_len, '\0') {} 
 
     int set_up();
-
     void accept_new_connection();
+    void delete_client(size_t i);
 
-    void delete_client(size_t i) {
-        counter_m -= players[i].n_proper_puts; 
-        pollvec.delete_client(i);
-        players.delete_client(i);
+    string make_scoring() {
+        // TODO
     }
 
-    void play_a_game() {
-        counter_m = 0;
-        TimePoint next_event = steady_clock::now() + seconds(10); // Joke
-        bool has_next_event = false;
-        bool instant_event = false;
-
-        while (counter_m < m and !(*finish_flag)) {
-            if (next_event <= steady_clock::now()) {
-                has_next_event = false;
+    void finish_game() {
+        string scoring = make_scoring();
+        for (int i = pollvec.size(); i; --i) {
+            auto &client = players[i];
+            if (!client.helloed) {
+                delete_client(i);
+                continue;
             }
-            int timeout = -1;
-            if (has_next_event) {
-                timeout = max(0, (int)time_diff(steady_clock::now(), next_event));
-            }
-            int poll_status = poll(
-                pollvec.pollfds.data(), 
-                (nfds_t) pollvec.size(),
-                timeout
-            );
-
-            if (poll_status < 0) {
-                print_error("Poll error occurred. errno: " + to_string(errno) + ".");
-                if (*finish_flag) {
-                    return; 
-                }
-                continue; 
-            }
-            // Poll status >= 0. 
-            // I can have some events POLLIN or POLLOUT.
-            // I can also have timeout due to a messege I'm supposed to send right now.
-
-            TimePoint new_next_event = steady_clock::now() + seconds(10);
-
-            // First I accept new connection. (if there is any)
-            accept_new_connection();
-            pollvec[0].revents = 0; 
-            
-            for (size_t i = 1; i < pollvec.size(); ++i) {
-                auto &pollfd = pollvec[i]; 
-                auto &client = players[i];
-                
-                if ((pollfd.revents & (POLLIN | POLLERR))) {
-                    // read
-                    ssize_t read_len = read(
-                        pollfd.fd,
-                        buffer.data(),
-                        buff_len
-                    );
-
-                    if (read_len < 0) {
-                        print_error(
-                            "Reading message from " + 
-                            client.ip + ":" + to_string(client.port) + 
-                            " result in error. Closing connection"
-                        );
-                        delete_client(i);
-                        --i;
-                        continue; 
-                    }
-                    else if (read_len == 0) {
-                        cout << "Client " << client.to_string_w_id() << " disconnected." << endl;
-                        delete_client(i);
-                        --i;
-                        continue; 
-                    }
-                    else {
-                        int read_res = client.read_message(buffer.substr(0, read_len), k, file);
-                        if (read_res == - 1) {
-                           delete_client(i);
-                            --i;
-                            continue;
-                        }
-                        else if (read_res == 1) {
-                            // A proper PUT was made.
-                            ++counter_m;
-                            if (counter_m == m) {
-                                // TODO: zakoncz gre
-                            }
-                        }
-                    }
-
-                }
-                if ((pollfd.revents & POLLOUT)) {
-                    while (client.has_ready_message_to_send()) {
-                        if (client.send_message() != 1) {
-                            // It reutns 1 iff the whole message was sent.
-                            break;
-                        }
-                    }
-                }
-                pollfd.revents = 0;
-                pollfd.events = POLLIN; // Reset events to POLLIN for the next poll 
-                has_next_event = false;
-
-                if (!client.helloed) {
-                    if (client.connected_timestamp + seconds(3) <= steady_clock::now()) {
-                        cout << "Client " << client.to_string_w_id() 
-                             << " did not send HELLO in time. Disconnecting." << endl;
-                        delete_client(i);
-                        --i;
-                        continue; 
-                    }
-
-                    new_next_event = min(
-                        new_next_event, 
-                        client.connected_timestamp + seconds(3)
-                    );
-                    has_next_event = true; 
-                }   
-
-                if (!client.messages_to_send.empty()) {
-                    if (client.has_ready_message_to_send()) {
-                        // If there are messages to send, set POLLOUT
-                        pollfd.events |= POLLOUT; 
-                    }
-                    pollfd.events |= POLLOUT; // Set POLLOUT if there are messages to send
-                    new_next_event = min(
-                        new_next_event, 
-                        client.messages_to_send.get_ready_message().first // First message to send
-                    );
-                    has_next_event = true; 
-                }    
-            }
-
-            next_event = new_next_event;
+            client.send_scoring(scoring);
+            // TODO: jakis error jesli nie cale sie wyslalo?
+            delete_client(i);
         }
+
     }
+
+    void play_a_game();
 };

@@ -95,6 +95,40 @@ bool proper_hello(const string& msg) {
     return is_id_valid(id);
 }
 
+string id_from_hello(const string& msg) {
+    return msg.substr(6, msg.size() - 8); // Remove "HELLO " and "\r\n"
+}
+
+size_t get_no_small_letters(const string& str) {
+    size_t count = 0;
+    for (char c: str) {
+        if (c >= 'a' and c <= 'z') {
+            ++count;
+        }
+    }
+    return count;
+}
+
+string make_penalty(const string &point, const string &value) {
+    return "PENALTY " + point + " " + value + "\r\n"; 
+}
+string make_bad_put(const string &point, const string &value) {
+    return "BAD_PUT " + point + " " + value + "\r\n";
+}
+string make_coeff(ifstream &file) {
+    string res;
+    getline(file, res); // TODO: ygh czy mam zakladac ze to moze zwrocic blad?
+    return res;
+}
+string make_state(const vector<double> &approx) {
+    string res = "STATE ";
+    for (double val : approx) {
+        res += to_proper_rational(val) + " ";
+    }
+    res += "\r\n";
+    return res;
+}
+
 bool is_integer(const string& str) {
     if (str.empty()) 
         return false;
@@ -135,7 +169,7 @@ bool is_proper_rational(const string& str) {
     return true;
 }
 
-tuple<string, string> get_point_value(const string& msg) {
+tuple<string, string> get_point_and_value(const string& msg) {
     // This function assumes that the message is a PUT message checked by is_put.
     size_t point_len = msg.find(' ', 4) - 4;
     string point = msg.substr(4, point_len);
@@ -208,7 +242,6 @@ double get_double(const string& msg) {
     return res;
 }
     
-
 // This function assumes that the message is a PUT message checked by is_put.
 bool is_bad_put(const string& point, const string& value, unsigned int k) {
     int point_int = get_int(point, k);
@@ -222,19 +255,82 @@ bool is_bad_put(const string& point, const string& value, unsigned int k) {
     return false;
 }
 
-string id_from_hello(const string& msg) {
-    return msg.substr(6, msg.size() - 8); // Remove "HELLO " and "\r\n"
+
+// MessageQueue
+
+void MessageQueue::push(const string& msg, int delay_s) {
+    auto now = steady_clock::now();
+    auto time_to_send = now + seconds(delay_s);
+    messages.push({time_to_send, msg});
+}
+void MessageQueue::get_current() {
+    current_message = messages.top().second;
+    current_pos = 0;
+    messages.pop();
+}
+bool MessageQueue::currently_sending() const {
+    return current_message.empty();
+}
+bool MessageQueue::empty() const {
+    return current_message.empty() and messages.empty();
+}
+bool MessageQueue::ready_message() const {
+    if (messages.empty()) {
+        return false;
+    }
+    auto now = steady_clock::now();
+    return messages.top().first <= now;
+}
+// Returns: -1 iff error, 1 iff the whole message was sent, 0 otherwise
+int MessageQueue::send_message(int socket_fd) {
+    char *begin;
+    size_t len;
+    if (!currently_sending()) {
+        get_current();
+    }
+    int sent_len = write(
+        socket_fd, 
+        current_message.data() + current_pos,
+        current_message.size() - current_pos
+    );
+    if (sent_len < 0) {
+        print_error("Cannot send message to client. errno: " + to_string(errno));
+        return -1;
+    }
+    current_pos += sent_len;
+    if (current_pos == current_message.size()) {
+        // We have sent the whole message.
+        current_pos = 0;
+        current_message = "";
+        return 1;
+    }
+    return 0;
+}
+TimePoint MessageQueue::get_ready_time() const {
+    if (!current_message.empty()) {
+        return steady_clock::now(); // If we are currently sending a message, return now.
+    }
+    else if (!messages.empty()) {
+        return messages.top().first; 
+    }
+    else {
+        return steady_clock::time_point::max();
+    }
+}
+void MessageQueue::send_scoring(const string &scoring, int socket_fd) {
+    if (current_message.empty()) {
+        current_message = scoring;
+        current_pos = 0;
+    }
+    else {
+        current_message += scoring;
+    }
+    send_message(socket_fd);
 }
 
-size_t get_n_small_letters(const string& str) {
-    size_t count = 0;
-    for (char c: str) {
-        if (c >= 'a' and c <= 'z') {
-            ++count;
-        }
-    }
-    return count;
-}
+
+
+// Client
 
 int Client::set_port_and_ip() {
     if (addr.ss_family == AF_INET) { //ipv4
@@ -310,7 +406,7 @@ int Client::read_message(const string& msg, int k, ifstream &file) {
         else {
             // First message is a proper HELLO.
             id = id_from_hello(first_message);
-            n_small_letters = get_n_small_letters(id);
+            n_small_letters = get_no_small_letters(id);
             helloed = true;
                 
             cout << to_string_wo_id() << " is now known as " << id << "." << endl;            
@@ -328,7 +424,7 @@ int Client::read_message(const string& msg, int k, ifstream &file) {
             
         // First message is a PUT message.
         // It was sent before the player received a reply so I resend penalty.
-        auto [point, value] = get_point_value(first_message);
+        auto [point, value] = get_point_and_value(first_message);
         messages_to_send.push(make_penalty(point, value), 0);
         // If the message is a bad put then we also send bad_put.
         if (is_bad_put(point, value, k)) {
@@ -340,7 +436,7 @@ int Client::read_message(const string& msg, int k, ifstream &file) {
     else {
         // First message is a PUT message.
         // If the message is a bad put then we also send bad_put.
-        auto [point, value] = get_point_value(first_message);
+        auto [point, value] = get_point_and_value(first_message);
         if (is_bad_put(point, value, k)) {
             print_error_bad_message(msg);
             messages_to_send.push(make_bad_put(point, value), 1);
@@ -363,7 +459,7 @@ int Client::read_message(const string& msg, int k, ifstream &file) {
             print_error_bad_message(msg);
             continue; // Ignore this message.
         }
-        auto [point, value] = get_point_value(msg);
+        auto [point, value] = get_point_and_value(msg);
         if (is_bad_put(point, value, k)) {
             print_error_bad_message(msg);
             messages_to_send.push(make_bad_put(point, value), 1);
@@ -388,6 +484,17 @@ int Client::read_message(const string& msg, int k, ifstream &file) {
     return res;
 }
 
+void Client::print_error_bad_message(const string& msg) {
+    print_error(
+        "bad message from " + 
+        to_string_w_id() +
+        ": " + msg
+    );
+}
+
+
+// Pollvec
+
 int Pollvec::set_up() {
     int socket_fd = ipv6_enabled_sock(listen_port);
     if (socket_fd < 0) {
@@ -410,6 +517,9 @@ int Pollvec::set_up() {
 
     return 0;
 }
+
+
+// Server
 
 int Server::set_up() {
     if (pollvec.set_up()) {
@@ -466,10 +576,138 @@ void Server::accept_new_connection() {
     players.add_player(client);
 }
 
-string to_proper_rational(double val) {
-    static const size_t buff_len = 1000; 
-    static char buffer[buff_len];
-    
-    auto res = to_chars(buffer, buffer + buff_len, val);
-    return string(buffer, res.ptr - buffer);
+
+void Server::delete_client(size_t i) {
+    counter_m -= players[i].n_proper_puts; 
+    pollvec.delete_client(i);
+    players.delete_client(i);
+}
+
+void Server::play_a_game() {
+    counter_m = 0;
+    TimePoint next_event = steady_clock::now() + seconds(10); // Joke
+    bool has_next_event = false;
+    bool instant_event = false;
+
+    while (counter_m < m and !(*finish_flag)) {
+        if (next_event <= steady_clock::now()) {
+            has_next_event = false;
+        }
+        int timeout = -1;
+        if (has_next_event) {
+            timeout = max(0, (int)time_diff(steady_clock::now(), next_event));
+        }
+        int poll_status = poll(
+            pollvec.pollfds.data(), 
+            (nfds_t) pollvec.size(),
+            timeout
+        );
+
+        if (poll_status < 0) {
+            print_error("Poll error occurred. errno: " + to_string(errno) + ".");
+            if (*finish_flag) {
+                return; 
+            }
+            continue; 
+        }
+        // Poll status >= 0. 
+        // I can have some events POLLIN or POLLOUT.
+        // I can also have timeout due to a messege I'm supposed to send right now.
+
+        TimePoint new_next_event = steady_clock::now() + seconds(10);
+
+        // First I accept new connection. (if there is any)
+        accept_new_connection();
+        pollvec[0].revents = 0; 
+        
+        for (size_t i = 1; i < pollvec.size(); ++i) {
+            auto &pollfd = pollvec[i]; 
+            auto &client = players[i];
+            
+            if ((pollfd.revents & (POLLIN | POLLERR))) {
+                // read
+                ssize_t read_len = read(
+                    pollfd.fd,
+                    buffer.data(),
+                    buff_len
+                );
+
+                if (read_len < 0) {
+                    print_error(
+                        "Reading message from " + 
+                        client.ip + ":" + to_string(client.port) + 
+                        " result in error. Closing connection"
+                    );
+                    delete_client(i);
+                    --i;
+                    continue; 
+                }
+                else if (read_len == 0) {
+                    cout << "Client " << client.to_string_w_id() << " disconnected." << endl;
+                    delete_client(i);
+                    --i;
+                    continue; 
+                }
+                else {
+                    int read_res = client.read_message(buffer.substr(0, read_len), k, file);
+                    if (read_res == - 1) {
+                        delete_client(i);
+                        --i;
+                        continue;
+                    }
+                    else if (read_res == 1) {
+                        // A proper PUT was made.
+                        ++counter_m;
+                        if (counter_m == m) {
+                            finish_game();
+                            return;
+                        }
+                    }
+                }
+
+            }
+            if ((pollfd.revents & POLLOUT)) {
+                while (client.has_ready_message_to_send()) {
+                    if (client.send_message() != 1) {
+                        // It reutns 1 iff the whole message was sent.
+                        break;
+                    }
+                }
+            }
+            pollfd.revents = 0;
+            pollfd.events = POLLIN; // Reset events to POLLIN for the next poll 
+            has_next_event = false;
+
+            if (!client.helloed) {
+                if (client.connected_timestamp + seconds(3) <= steady_clock::now()) {
+                    cout << "Client " << client.to_string_w_id() 
+                            << " did not send HELLO in time. Disconnecting." << endl;
+                    delete_client(i);
+                    --i;
+                    continue; 
+                }
+
+                new_next_event = min(
+                    new_next_event, 
+                    client.connected_timestamp + seconds(3)
+                );
+                has_next_event = true; 
+            }   
+
+            if (!client.messages_to_send.empty()) {
+                if (client.has_ready_message_to_send()) {
+                    // If there are messages to send, set POLLOUT
+                    pollfd.events |= POLLOUT; 
+                }
+                pollfd.events |= POLLOUT; // Set POLLOUT if there are messages to send
+                new_next_event = min(
+                    new_next_event,
+                    client.messages_to_send.get_ready_time() // First message to send
+                );
+                has_next_event = true; 
+            }    
+        }
+
+        next_event = new_next_event;
+    }
 }

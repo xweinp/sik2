@@ -10,6 +10,7 @@
 using namespace std;
 using namespace std::chrono;
 
+string to_proper_rational(double val);
 
 void print_error(const string& description) {
     cerr << "ERROR: " << description << endl;
