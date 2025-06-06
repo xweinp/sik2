@@ -18,6 +18,7 @@ const int64_t DEF_M = 131, MIN_M = 1, MAX_M = 12341234;
 
 // TODO: co na cerr co na cout???
 // TODO: erorry jak w tresi
+// TODO: unknown playrzy w scoring?
 
 static bool finish = false;
 

@@ -74,3 +74,75 @@ int install_signal_handler(int signal, void (*handler)(int), int flags) {
     }
     return 0;
 }
+
+
+bool is_proper_rational(const string& str) {
+    if (str.empty()) 
+        return false;
+    size_t i = 0;
+    if (str[0] == '-') {
+        i = 1; // Skip the minus sign
+    }
+    for (; i < str.size(); ++i) {
+        if (str[i] == '.') {
+            ++i;
+            break;
+        }
+        if (!isdigit(str[i])) {
+            return false;
+        }
+    }
+    if (i == str.size())
+        return true;
+    for (size_t j = i + 1; j < str.size(); ++j) {
+        if (!isdigit(str[j])) {
+            return false;
+        }
+        if (j - i > 7) {
+            // More than 7 digits after the decimal point
+            return false;
+        }
+    }
+    return true;
+}
+
+vector<double> parse_coefficients(string &coeff_str) {
+    vector<double> coeffs;
+
+    coeff_str.pop_back();
+    coeff_str.pop_back(); // Remove "\r\n"
+    for(size_t i = coeff_str.find(' ') + 1; i < coeff_str.size();) {
+        size_t next_space = coeff_str.find(' ', i);
+        string coeff = coeff_str.substr(i, next_space - i);
+        coeffs.push_back(get_double(coeff));
+        i = next_space + 1;
+    }
+    coeff_str += "\r\n"; // Restore "\r\n"
+    return coeffs;
+}
+
+double get_double(const string& msg) {
+    bool negative = false;
+    double res = 0;
+    size_t i = 0;
+    if (msg[0] == '-') {
+        negative = true;
+        i = 1; 
+    }
+    for (; i < msg.size(); ++i) {
+        if (msg[i] == '.') {
+            ++i; 
+            break;
+        }
+        res = res * 10 + (msg[i] - '0');
+    }
+    double multiplier = 0.1;
+    for (; i < msg.size(); ++i) {
+        res += (msg[i] - '0') * multiplier;
+        multiplier *= 0.1;
+    }
+    if (negative) {
+        res = -res;
+    }
+    return res;
+}

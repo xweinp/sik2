@@ -78,12 +78,24 @@ int main(int argc, char* argv[]) {
         auto_strategy
     );
 
+    
     if (client.connect_to_server(force_ipv4, force_ipv6) < 0) {
         return 1;
     }
     cout << "Connected to " + server_address + ":" + to_string(port) + "\n";
 
-    client.send_hello();
+    if(client.send_hello() < 0) {
+        return 1;
+    }
+
+    if (auto_strategy) {
+        client.auto_play();
+    } else {
+        if (client.setup_stdin() < 0) {
+            return 1;
+        }
+        client.interactive_play();
+    }
 
 
     

@@ -19,4 +19,7 @@ bool is_id_valid(const string& id);
 
 int install_signal_handler(int signal, void (*handler)(int), int flags);
 
+bool is_proper_rational(const string& str);
 
+vector<double> parse_coefficients(string &coeff_str);
+double get_double(const string& msg); 

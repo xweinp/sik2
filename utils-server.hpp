@@ -30,15 +30,15 @@ string make_state(const vector<double> &approx);
 
 
 bool is_integer(const string& str);
-bool is_proper_rational(const string& str);
+
 tuple<string, string> get_point_and_value(const string& msg);
 bool is_put(const string& msg);
 // I assume that the integer non-negative
 int64_t get_int(const string& msg, int64_t mx);
-double get_double(const string& msg); 
 // This function assumes that the message is a PUT message checked by is_put.
 bool is_bad_put(const string& point, const string& value, int32_t k);
-    
+
+
 using TimePoint = steady_clock::time_point;
 using Msg = std::pair<TimePoint, string>;
 struct MsgComparator {
@@ -123,8 +123,7 @@ struct Client {
     void send_scoring(const string &scoring) {
         messages_to_send.send_scoring(scoring, fd);
     }
-    vector<double> parse_coefficients(const string &coeff_str);
-    void calc_goal_from_coef(const string &coeff);
+    void calc_goal_from_coef(string &coeff);
     void update_approximation(const string &point, const string &value);
 };
 
