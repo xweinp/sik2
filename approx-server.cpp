@@ -83,14 +83,11 @@ int main(int argc, char* argv[]) {
             // TODO: close all sockets or idk
         }
         
-        if (poll_status < 0) {
+        if (poll_status ==) {
             // TODO: wtf is oging on here?
             continue;
         }
-        else if (poll_status == 0) {
-            // TODO: also wtf
-            continue;
-        }
+        
         
         // New connection.
         try {

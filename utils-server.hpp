@@ -134,6 +134,40 @@ struct Client {
     string current_message;
     size_t current_message_pos = 0;
 
+    string ip;
+    int32_t port;
+
+    TimePoint connected_timestamp;
+    
+    int set_port_and_ip() {
+        if (addr.ss_family == AF_INET) { //ipv4
+            const sockaddr_in *addr4 = (sockaddr_in*)(&addr);
+            const in_addr *ia = (in_addr*)(&addr4->sin_addr);
+            char buff[INET_ADDRSTRLEN] = {0};
+
+            if (!inet_ntop(AF_INET, ia, buff, sizeof(buff))) {
+                print_error("inet_ntoa exited with error.");
+                return -1;
+            }
+            ip = string(buff);
+            port = ntohs(addr4->sin_port);
+            return 0;
+        }
+        else {
+            const sockaddr_in6 *addr6 = (sockaddr_in6*)(&addr);
+            const in6_addr *ia = (in6_addr*)(&addr6->sin6_addr);
+            char buff[INET6_ADDRSTRLEN] = {0};
+
+            if (!inet_ntop(AF_INET6, ia, buff, sizeof(buff))) {
+                print_error("inet_ntoa exited with error.");
+                return -1;
+            }
+            ip = string(buff);
+            port = ntohs(addr6->sin6_port);
+            return 0;
+        }
+    }
+
     void read_message(const string& msg, int k) {
         // every message ends with "\r\n"
         size_t old_len = buffered_message.size();
@@ -260,12 +294,17 @@ struct Client {
 struct PlayerSet {
     vector<Client> players;
 
-    void delete_client(size_t i) { //INDEXING FORM 1! 
-        swap(players[i - 1], players[players.size() - 1]);
+    PlayerSet() : players(1) {} // Because pollfd[0] is the listening socket
+
+    void delete_client(size_t i) {
+        swap(players[i], players[players.size() - 1]);
         players.pop_back();
     }
-    Client &get_player(size_t i) { //INDEXING FORM 1! 
-        return players[i - 1];
+    Client& operator[](size_t i) {
+        return players[i];
+    }
+    void add_player(const Client &client) {
+        players.push_back(client);
     }
 };
 
@@ -281,6 +320,10 @@ struct Pollvec {
                 close(pfd.fd);
             }
         }
+    }
+
+    pollfd& operator[](size_t i) {
+        return pollfds[i];
     }
 
     int set_up() {
@@ -316,37 +359,6 @@ struct Pollvec {
     size_t size() {
         return pollfds.size();
     }
-
-    void accept_new_connection() {
-        if ((pollfds[0].revents & POLLIN) == 0) {
-            return;
-        }
-
-        // TODO: zpaytaj Kamila czy tez uzywa tego storage
-        Client client;
-        client.addr_len = sizeof(client.addr);
-        client.fd = accept(
-            pollfds[0].fd, 
-            (sockaddr*)&client.addr, 
-            &client.addr_len
-        );
-        if (client.fd < 0) {
-            // TODO: handle errors
-            throw runtime_error("Cannot accept new connection");
-        }
-        if (fcntl(client.fd, F_SETFL, O_NONBLOCK)) {
-            close(client.fd);
-            // TODO: errors
-            throw runtime_error("Cannot set client socket to non-blocking mode");
-        }
-        // TODO: cos wyslac jak zaczynam komunikacje? jakis timestamp?
-
-        pollfd client_fd_struct{};
-        client_fd_struct.fd = client.fd;
-        client_fd_struct.events = POLLIN; 
-        client_fd_struct.revents = 0;
-        add_client(client_fd_struct);
-    }
 };
 
 
@@ -379,6 +391,48 @@ struct Server {
         return 0;
     }
 
+    void accept_new_connection() {
+        auto &listen_pollfd = pollvec[0];
+        if ((listen_pollfd.revents & POLLIN) == 0) {
+            return;
+        }
+        // TODO: limit wielkosci tablicy poll!
+
+        listen_pollfd.revents = 0; // Reset revents for the next poll.
+
+        Client client;
+        client.addr_len = sizeof(client.addr);
+        client.fd = accept(
+            listen_pollfd.fd, 
+            (sockaddr*)&client.addr, 
+            &client.addr_len
+        );
+        client.connected_timestamp = steady_clock::now();
+
+        if (client.fd < 0) {
+            print_error("Cannot accept new connection. errno: " + to_string(errno));
+            return;
+        }
+        if (fcntl(client.fd, F_SETFL, O_NONBLOCK)) {
+            close(client.fd);
+            print_error("Cannot set client socket to non-blocking mode. errno: " + to_string(errno));
+            return;
+        }
+        if (client.set_port_and_ip()) {
+            return;
+        }
+
+        cout << "New client " << client.ip << ":" << client.port << "." << endl;
+
+        pollfd client_fd_struct{};
+        client_fd_struct.fd = client.fd;
+        client_fd_struct.events = POLLIN; 
+        client_fd_struct.revents = 0;
+        pollvec.add_client(client_fd_struct);
+
+        players.add_player(client);
+    }
+
     void play_a_game() {
         counter_m = 0;
         TimePoint next_event = steady_clock::now() + years(10); // Joke
@@ -401,9 +455,25 @@ struct Server {
                 if (*finish_flag) {
                     return; 
                 }
+                continue; 
             }
+            // Poll status >= 0. 
+            // I can have some events POLLIN or POLLOUT.
+            // I can also have timeout due to a messege I'm supposed to send right now.
 
-            else if (poll_status == 0) { // hmm i probably have something to send
+            // First I accept new connection. (if there is any)
+            accept_new_connection();
+            
+            for (size_t i = 1; i < pollvec.size(); ++i) {
+                auto &pollfd = pollvec[i];
+                
+                if ((pollfd.revents & (POLLIN | POLLERR))) {
+                    // read
+                }
+                if ((pollfd.revents & POLLOUT)) {
+                    // write
+                }
+                // update next event
             }
 
         }
