@@ -178,17 +178,6 @@ bool is_put(const string& msg) {
     return true;
 }
 
-// I assume that the integer non-negative
-int64_t get_int(const string& msg, int64_t mx) {
-    int64_t res = 0;
-    for (size_t i = 0; i < msg.size(); ++i) {
-        res = res * 10 + (msg[i] - '0');
-        if (res > mx) {
-            return -1; 
-        }
-    }
-    return res;
-}
 
 
     
@@ -280,9 +269,9 @@ void MessageQueue::send_scoring(const string &scoring, int socket_fd) {
 
 
 
-// Client
+// Player
 
-int Client::set_port_and_ip() {
+int Player::set_port_and_ip() {
     if (addr.ss_family == AF_INET) { //ipv4
         const sockaddr_in *addr4 = (sockaddr_in*)(&addr);
         const in_addr *ia = (in_addr*)(&addr4->sin_addr);
@@ -311,7 +300,7 @@ int Client::set_port_and_ip() {
     }
 }
 
-int Client::read_message(const string& msg, ifstream &file) {
+int Player::read_message(const string& msg, ifstream &file) {
     int32_t k = (int32_t) approx.size() - 1;
 
     int res = 0;
@@ -438,7 +427,7 @@ int Client::read_message(const string& msg, ifstream &file) {
     return res;
 }
 
-void Client::print_error_bad_message(const string& msg) {
+void Player::print_error_bad_message(const string& msg) {
     print_error(
         "bad message from " + 
         to_string_w_id() +
@@ -447,7 +436,7 @@ void Client::print_error_bad_message(const string& msg) {
 }
 
 
-void Client::calc_goal_from_coef(string &coeff) {
+void Player::calc_goal_from_coef(string &coeff) {
     size_t k = approx.size() - 1;
     goal.resize(k + 1);
 
@@ -465,7 +454,7 @@ void Client::calc_goal_from_coef(string &coeff) {
     }
 }
 
-void Client::update_approximation(const string &point, const string &value) {
+void Player::update_approximation(const string &point, const string &value) {
     size_t k = approx.size() - 1;
     size_t point_int = (size_t) get_int(point, (int64_t) k);
     double value_double = get_double(value);
@@ -528,7 +517,7 @@ void Server::accept_new_connection() {
 
     listen_pollfd.revents = 0; // Reset revents for the next poll.
 
-    Client client((size_t) n);
+    Player client((size_t) n);
     client.addr_len = sizeof(client.addr);
     client.fd = accept(
         listen_pollfd.fd, 
@@ -664,7 +653,7 @@ void Server::play_a_game() {
                     continue; 
                 }
                 else if (read_len == 0) {
-                    cout << "Client " << client.to_string_w_id() << " disconnected." << endl;
+                    cout << "Player " << client.to_string_w_id() << " disconnected." << endl;
                     delete_client(i);
                     --i;
                     continue; 
@@ -702,7 +691,7 @@ void Server::play_a_game() {
 
             if (!client.helloed) {
                 if (client.connected_timestamp + seconds(3) <= steady_clock::now()) {
-                    cout << "Client " << client.to_string_w_id() 
+                    cout << "Player " << client.to_string_w_id() 
                             << " did not send HELLO in time. Disconnecting." << endl;
                     delete_client(i);
                     --i;

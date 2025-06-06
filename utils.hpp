@@ -23,3 +23,8 @@ bool is_proper_rational(const string& str);
 
 vector<double> parse_coefficients(string &coeff_str);
 double get_double(const string& msg); 
+
+bool is_valid_scoring(const string& msg);
+
+// I assume that the integer non-negative
+int64_t get_int(const string& msg, int64_t mx);

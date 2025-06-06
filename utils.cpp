@@ -4,6 +4,7 @@ void print_error(const string& description) {
     cerr << "ERROR: " << description << endl;
 }
 
+
 string to_proper_rational(double val) {
     static const size_t buff_len = 1000; 
     static char buffer[buff_len];
@@ -143,6 +144,31 @@ double get_double(const string& msg) {
     }
     if (negative) {
         res = -res;
+    }
+    return res;
+}
+
+bool is_valid_scoring(const string& msg) {
+    if (msg.size() <= 10 || msg.substr(0, 8) != "SCORING ") {
+        return false;
+    }
+    if (msg.substr(msg.size() - 2, 2) != "\r\n") {
+        return false; // Must end with "\r\n"
+    }
+    return true;
+}
+
+// I assume that the integer non-negative
+int64_t get_int(const string& msg, int64_t mx) {
+    int64_t res = 0;
+    for (size_t i = 0; i < msg.size(); ++i) {
+        if (msg[i] < '0' || msg[i] > '9') {
+            return -1; // Invalid character for integer
+        }
+        res = res * 10 + (msg[i] - '0');
+        if (res > mx) {
+            return -1; 
+        }
     }
     return res;
 }

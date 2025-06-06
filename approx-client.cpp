@@ -74,8 +74,7 @@ int main(int argc, char* argv[]) {
     Client client(
         player_id, 
         server_address, 
-        port, 
-        auto_strategy
+        port
     );
 
     
@@ -89,15 +88,21 @@ int main(int argc, char* argv[]) {
     }
 
     if (auto_strategy) {
-        client.auto_play();
-    } else {
+        int res = client.auto_play();
+        close(client.fds[1].fd);
+        if (res < 0) {
+            return 1;
+        }
+    } 
+    else {
         if (client.setup_stdin() < 0) {
             return 1;
         }
-        client.interactive_play();
+        int res = client.interactive_play();
+        close(client.fds[1].fd);
+        if (res < 0) {
+            return 1;
+        }
     }
-
-
-    
     return 0;
 }

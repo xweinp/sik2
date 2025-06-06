@@ -33,8 +33,7 @@ bool is_integer(const string& str);
 
 tuple<string, string> get_point_and_value(const string& msg);
 bool is_put(const string& msg);
-// I assume that the integer non-negative
-int64_t get_int(const string& msg, int64_t mx);
+
 // This function assumes that the message is a PUT message checked by is_put.
 bool is_bad_put(const string& point, const string& value, int32_t k);
 
@@ -70,7 +69,7 @@ struct MessageQueue {
 
 
 
-struct Client {
+struct Player {
     int fd; // File descriptor for the client socket
     sockaddr_storage addr; // Address of the client
     socklen_t addr_len; // Length of the address structure
@@ -100,7 +99,7 @@ struct Client {
     vector<double> goal;
     double error = 0.0; 
 
-    Client(size_t k) : approx(k + 1, 0.0) {}
+    Player(size_t k) : approx(k + 1, 0.0) {}
 
     int set_port_and_ip();
     // returns: -1 iff we should disconnect the client, 1 iff a proper put was made, 0 otherwise
@@ -129,7 +128,7 @@ struct Client {
 
 
 struct PlayerSet {
-    vector<Client> players;
+    vector<Player> players;
 
     PlayerSet() : players(1, 0) {} // Because pollfd[0] is the listening socket
 
@@ -137,10 +136,10 @@ struct PlayerSet {
         swap(players[i], players[players.size() - 1]);
         players.pop_back();
     }
-    Client& operator[](size_t i) {
+    Player& operator[](size_t i) {
         return players[i];
     }
-    void add_player(const Client &client) {
+    void add_player(const Player &client) {
         players.push_back(client);
     }
 };
