@@ -14,6 +14,7 @@
 #include "utils.hpp"
 
 using namespace std;
+using namespace std::chrono;
 
 int ipv6_enabled_sock(uint16_t port);
 int ipv4_only_sock(uint16_t port);
@@ -33,10 +34,10 @@ bool is_proper_rational(const string& str);
 tuple<string, string> get_point_and_value(const string& msg);
 bool is_put(const string& msg);
 // I assume that the integer non-negative
-int get_int(const string& msg, int mx);
+int64_t get_int(const string& msg, int64_t mx);
 double get_double(const string& msg); 
 // This function assumes that the message is a PUT message checked by is_put.
-bool is_bad_put(const string& point, const string& value, unsigned int k); // DONE
+bool is_bad_put(const string& point, const string& value, int32_t k);
     
 using TimePoint = steady_clock::time_point;
 using Msg = std::pair<TimePoint, string>;
@@ -45,7 +46,7 @@ struct MsgComparator {
         return a.first > b.first; 
     }
 };
-auto time_diff(TimePoint begin, TimePoint end) {
+inline auto time_diff(TimePoint begin, TimePoint end) {
     return duration_cast<milliseconds>(end - begin).count();
 }
 
@@ -54,7 +55,7 @@ struct MessageQueue {
     size_t current_pos = 0;
     string current_message; // TODO: napraw zeby sie nie mieszaly te wiadomosci!
 
-    void push(const string& msg, int delay_s);
+    void push(const string& msg, uint64_t delay_s);
     void get_current();
     bool currently_sending() const;
     bool empty() const;
@@ -89,7 +90,7 @@ struct Client {
     size_t current_message_pos = 0;
 
     string ip;
-    int32_t port;
+    uint16_t port;
 
     int32_t n_proper_puts = 0; 
 
@@ -103,7 +104,7 @@ struct Client {
 
     int set_port_and_ip();
     // returns: -1 iff we should disconnect the client, 1 iff a proper put was made, 0 otherwise
-    int read_message(const string& msg, int k, ifstream &file);
+    int read_message(const string& msg, ifstream &file);
     
     bool has_ready_message_to_send() const {
         return !messages_to_send.ready_message();
@@ -131,7 +132,7 @@ struct Client {
 struct PlayerSet {
     vector<Client> players;
 
-    PlayerSet() : players(1) {} // Because pollfd[0] is the listening socket
+    PlayerSet() : players(1, 0) {} // Because pollfd[0] is the listening socket
 
     void delete_client(size_t i) {
         swap(players[i], players[players.size() - 1]);
@@ -150,8 +151,8 @@ struct Pollvec {
     // 0-th polldf is always the listening socket.
     // Other pollfds are clients.
     vector<pollfd> pollfds;
-    int32_t listen_port;
-    Pollvec(int32_t _listen_port) : listen_port(_listen_port) {};
+    uint16_t listen_port;
+    Pollvec(uint16_t _listen_port) : listen_port(_listen_port) {};
     ~Pollvec() {
         for (const auto& pfd : pollfds) {
             close(pfd.fd);
@@ -190,11 +191,11 @@ struct Server {
     string buffer;
     
     Server(
-        int32_t listen_port,  int32_t k, 
-        int32_t n, int32_t m, char *filename,
-        bool *finish_flag
-    ) : pollvec(listen_port), k(k), m(m), n(n), 
-        filename(filename), finish_flag(finish_flag), 
+        uint16_t _listen_port,  int32_t _k, 
+        int32_t _n, int32_t _m, char *_filename,
+        bool *_finish_flag
+    ) : pollvec(_listen_port), k(_k), n(_n), m(_m), 
+        filename(_filename), finish_flag(_finish_flag), 
         buffer(buff_len, '\0') {} 
 
     int set_up();

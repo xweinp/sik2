@@ -23,7 +23,7 @@ static bool finish = false;
 
 static void catch_int(int sig) {
     finish = true;
-    print_error("Caught SIGINT, finishing the server.");
+    print_error("Caught signal " + to_string(sig) + ". Exiting after cleanup.");
 }
 
 
@@ -64,10 +64,10 @@ int main(int argc, char* argv[]) {
     int32_t m;
     char *f = NULL;
 
-    port = get_arg('p', args, DEF_P, MIN_P, MAX_P);
-    k = get_arg('k', args, DEF_K, MIN_K, MAX_K);
-    n = get_arg('n', args, DEF_N, MIN_N, MAX_N);
-    m = get_arg('m', args, DEF_M, MIN_M, MAX_M);
+    port = (int32_t) get_arg('p', args, DEF_P, MIN_P, MAX_P);
+    k = (int32_t) get_arg('k', args, DEF_K, MIN_K, MAX_K);
+    n = (int32_t) get_arg('n', args, DEF_N, MIN_N, MAX_N);
+    m = (int32_t) get_arg('m', args, DEF_M, MIN_M, MAX_M);
     
     if (port < 0 or k < 0 or n < 0 or m < 0) {
         return 1;
@@ -79,7 +79,7 @@ int main(int argc, char* argv[]) {
     }
     f = args['f'];
 
-    Server server(port, k, n, m, f, &finish);
+    Server server((uint16_t) port, k, n, m, f, &finish);
     if(server.set_up() < 0) {
         return 1;
     }

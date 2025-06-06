@@ -142,7 +142,7 @@ bool is_integer(const string& str) {
 bool is_proper_rational(const string& str) {
     if (str.empty()) 
         return false;
-    int i = 0;
+    size_t i = 0;
     if (str[0] == '-') {
         i = 1; // Skip the minus sign
     }
@@ -157,7 +157,7 @@ bool is_proper_rational(const string& str) {
     }
     if (i == str.size())
         return true;
-    for (int j = i + 1; j < str.size(); ++j) {
+    for (size_t j = i + 1; j < str.size(); ++j) {
         if (!isdigit(str[j])) {
             return false;
         }
@@ -205,7 +205,7 @@ bool is_put(const string& msg) {
 }
 
 // I assume that the integer non-negative
-int get_int(const string& msg, int mx) {
+int64_t get_int(const string& msg, int64_t mx) {
     int64_t res = 0;
     for (size_t i = 0; i < msg.size(); ++i) {
         res = res * 10 + (msg[i] - '0');
@@ -219,7 +219,7 @@ int get_int(const string& msg, int mx) {
 double get_double(const string& msg) {
     bool negative = false;
     double res = 0;
-    int i = 0;
+    size_t i = 0;
     if (msg[0] == '-') {
         negative = true;
         i = 1; 
@@ -243,8 +243,8 @@ double get_double(const string& msg) {
 }
     
 // This function assumes that the message is a PUT message checked by is_put.
-bool is_bad_put(const string& point, const string& value, unsigned int k) {
-    int point_int = get_int(point, k);
+bool is_bad_put(const string& point, const string& value, int32_t k) {
+    int64_t point_int = get_int(point, (int64_t) k);
     if (point_int < 0) {
         return true; 
     }
@@ -258,7 +258,7 @@ bool is_bad_put(const string& point, const string& value, unsigned int k) {
 
 // MessageQueue
 
-void MessageQueue::push(const string& msg, int delay_s) {
+void MessageQueue::push(const string& msg, uint64_t delay_s) {
     auto now = steady_clock::now();
     auto time_to_send = now + seconds(delay_s);
     messages.push({time_to_send, msg});
@@ -283,12 +283,11 @@ bool MessageQueue::ready_message() const {
 }
 // Returns: -1 iff error, 1 iff the whole message was sent, 0 otherwise
 int MessageQueue::send_message(int socket_fd) {
-    char *begin;
-    size_t len;
     if (!currently_sending()) {
         get_current();
     }
-    int sent_len = write(
+
+    ssize_t sent_len = write(
         socket_fd, 
         current_message.data() + current_pos,
         current_message.size() - current_pos
@@ -297,7 +296,7 @@ int MessageQueue::send_message(int socket_fd) {
         print_error("Cannot send message to client. errno: " + to_string(errno));
         return -1;
     }
-    current_pos += sent_len;
+    current_pos += (size_t) sent_len;
     if (current_pos == current_message.size()) {
         // We have sent the whole message.
         current_pos = 0;
@@ -361,7 +360,9 @@ int Client::set_port_and_ip() {
     }
 }
 
-int Client::read_message(const string& msg, int k, ifstream &file) {
+int Client::read_message(const string& msg, ifstream &file) {
+    int32_t k = (int32_t) approx.size() - 1;
+
     int res = 0;
     // every message ends with "\r\n"
     size_t old_len = buffered_message.size();
@@ -387,7 +388,7 @@ int Client::read_message(const string& msg, int k, ifstream &file) {
             started_before_reply = true;
         }
         started_before_reply |= !(buffered_message.empty() or messages_to_send.empty());
-        return;
+        return 0;
     }
     // There is at lest one full message
     const string& first_message = messages[0];
@@ -452,18 +453,18 @@ int Client::read_message(const string& msg, int k, ifstream &file) {
         }
     }
 
-    for (int i = 1; i < messages.size(); ++i) {
+    for (size_t i = 1; i < messages.size(); ++i) {
         
-        const string& msg = messages[i];
-        if (!is_put(msg)) {
+        const string& msg_i = messages[i];
+        if (!is_put(msg_i)) {
             // This is not even a proper PUT message.
             // I just print ERROR and ignore it.
-            print_error_bad_message(msg);
+            print_error_bad_message(msg_i);
             continue; // Ignore this message.
         }
-        auto [point, value] = get_point_and_value(msg);
+        auto [point, value] = get_point_and_value(msg_i);
         if (is_bad_put(point, value, k)) {
-            print_error_bad_message(msg);
+            print_error_bad_message(msg_i);
             messages_to_send.push(make_bad_put(point, value), 1);
         }
         if (messages_to_send.empty()) {
@@ -513,11 +514,11 @@ void Client::calc_goal_from_coef(const string &coeff) {
 
     vector<double> coeffs = parse_coefficients(coeff);
     size_t n = coeffs.size();
-    for (uint32_t i = 0; i <= k; ++i) {
+    for (size_t i = 0; i <= k; ++i) {
         // Calculate the polynomial value at i
         double power = 1.0;
-        double i_d = i;
-        for (uint32_t j = 0; j <= n; ++j) {
+        double i_d = (double) i;
+        for (size_t j = 0; j <= n; ++j) {
             goal[i] += coeffs[j] * power;
             power *= i_d;
         }
@@ -526,8 +527,8 @@ void Client::calc_goal_from_coef(const string &coeff) {
 }
 
 void Client::update_approximation(const string &point, const string &value) {
-    int k = approx.size() - 1;
-    int point_int = get_int(point, k);
+    size_t k = approx.size() - 1;
+    size_t point_int = (size_t) get_int(point, (int64_t) k);
     double value_double = get_double(value);
     
     // we add (approx + value_double - goal)^2 and subtract (approx - goal)^2
@@ -588,7 +589,7 @@ void Server::accept_new_connection() {
 
     listen_pollfd.revents = 0; // Reset revents for the next poll.
 
-    Client client(n);
+    Client client((size_t) n);
     client.addr_len = sizeof(client.addr);
     client.fd = accept(
         listen_pollfd.fd, 
@@ -632,7 +633,7 @@ void Server::delete_client(size_t i) {
 
 string Server::make_scoring() {
     vector<pair<string, double>> scoring;
-    for (int i = 1; i < pollvec.size(); ++i) {
+    for (size_t i = 1; i < pollvec.size(); ++i) {
         scoring.push_back({
             players[i].id,
             players[i].error
@@ -653,7 +654,7 @@ string Server::make_scoring() {
 
 void Server::finish_game() {
     string scoring = make_scoring();
-    for (int i = pollvec.size(); i; --i) {
+    for (size_t i = pollvec.size(); i; --i) {
         auto &client = players[i];
         if (!client.helloed) {
             delete_client(i);
@@ -669,7 +670,6 @@ void Server::play_a_game() {
     counter_m = 0;
     TimePoint next_event = steady_clock::now() + seconds(10); // Joke
     bool has_next_event = false;
-    bool instant_event = false;
 
     while (counter_m < m and !(*finish_flag)) {
         if (next_event <= steady_clock::now()) {
@@ -731,7 +731,8 @@ void Server::play_a_game() {
                     continue; 
                 }
                 else {
-                    int read_res = client.read_message(buffer.substr(0, read_len), k, file);
+                    string pom = buffer.substr(0, (size_t) read_len);
+                    int read_res = client.read_message(pom, file);
                     if (read_res == - 1) {
                         delete_client(i);
                         --i;

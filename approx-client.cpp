@@ -54,9 +54,11 @@ int main(int argc, char* argv[]) {
     uint16_t port;
     
     
-    if (!check_mandatory_option(args, 'u') ||
+    if (
+        !check_mandatory_option(args, 'u') ||
         !check_mandatory_option(args, 's') ||
-        !check_mandatory_option(args, 'p')) {
+        !check_mandatory_option(args, 'p')
+    ) {
         return 1;
     }
 
@@ -69,17 +71,19 @@ int main(int argc, char* argv[]) {
     server_address = args['s'];
     port = get_arg('p', args, DEF_P, MIN_P, MAX_P);
     
-    int socket_fd = connect_to_server(
-        force_ipv4, 
-        force_ipv6, 
+    Client client(
+        player_id, 
         server_address, 
-        port
+        port, 
+        auto_strategy
     );
-    if (socket_fd < 0) {
+
+    if (client.connect_to_server(force_ipv4, force_ipv6) < 0) {
         return 1;
     }
+    cout << "Connected to " + server_address + ":" + to_string(port) + "\n";
 
-    send_hello(socket_fd, player_id);
+    client.send_hello();
 
 
     
