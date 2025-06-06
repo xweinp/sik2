@@ -121,9 +121,9 @@ string make_coeff(ifstream &file) {
     return res;
 }
 string make_state(const vector<double> &approx) {
-    string res = "STATE ";
+    string res = "STATE";
     for (double val : approx) {
-        res += to_proper_rational(val) + " ";
+        res += " " + to_proper_rational(val);
     }
     res += "\r\n";
     return res;
@@ -409,8 +409,10 @@ int Client::read_message(const string& msg, int k, ifstream &file) {
             n_small_letters = get_no_small_letters(id);
             helloed = true;
                 
-            cout << to_string_wo_id() << " is now known as " << id << "." << endl;            
-            messages_to_send.push(make_coeff(file), 0);
+            cout << to_string_wo_id() << " is now known as " << id << "." << endl;
+            string coeff = make_coeff(file);
+            calc_goal_from_coef(coeff);
+            messages_to_send.push(coeff, 0);
         }
     }
     else if (!is_put(first_message)) {
@@ -444,7 +446,7 @@ int Client::read_message(const string& msg, int k, ifstream &file) {
         else {
             // Update the approximation.
             ++n_proper_puts;
-            approx[get_int(point, k)] = get_double(value);
+            update_approximation(point, value);
             messages_to_send.push(make_state(approx), n_small_letters);
             res = 1;
         }
@@ -468,7 +470,7 @@ int Client::read_message(const string& msg, int k, ifstream &file) {
             // If the message is a bad put then we also send bad_put.
             ++n_proper_puts;
             // Update the approximation.
-            approx[get_int(point, k)] = get_double(value);
+            update_approximation(point, value);
             messages_to_send.push(make_state(approx), n_small_letters);
             res = 1;
         }
@@ -490,6 +492,48 @@ void Client::print_error_bad_message(const string& msg) {
         to_string_w_id() +
         ": " + msg
     );
+}
+
+vector<double> Client::parse_coefficients(const string &coeff_str) {
+    vector<double> coeffs;
+
+
+    for(size_t i = coeff_str.find(' ') + 1; i < coeff_str.size();) {
+        size_t next_space = coeff_str.find(' ', i);
+        string coeff = coeff_str.substr(i, next_space - i);
+        coeffs.push_back(get_double(coeff));
+        i = next_space + 1;
+    }
+
+    return coeffs;
+}
+void Client::calc_goal_from_coef(const string &coeff) {
+    size_t k = approx.size() - 1;
+    goal.resize(k + 1);
+
+    vector<double> coeffs = parse_coefficients(coeff);
+    size_t n = coeffs.size();
+    for (uint32_t i = 0; i <= k; ++i) {
+        // Calculate the polynomial value at i
+        double power = 1.0;
+        double i_d = i;
+        for (uint32_t j = 0; j <= n; ++j) {
+            goal[i] += coeffs[j] * power;
+            power *= i_d;
+        }
+        error += goal[i] * goal[i]; // Sum of squares of the goal values
+    }
+}
+
+void Client::update_approximation(const string &point, const string &value) {
+    int k = approx.size() - 1;
+    int point_int = get_int(point, k);
+    double value_double = get_double(value);
+    
+    // we add (approx + value_double - goal)^2 and subtract (approx - goal)^2
+    // a^2 - b^2 = (a - b)(a + b)
+    error += value_double * (value_double + 2 * (approx[point_int] - goal[point_int]));
+    approx[point_int] += value_double;
 }
 
 
@@ -521,6 +565,7 @@ int Pollvec::set_up() {
 
 // Server
 
+// returns 0 on success, -1 on fatal error
 int Server::set_up() {
     if (pollvec.set_up()) {
         // polvec prints error
@@ -581,6 +626,43 @@ void Server::delete_client(size_t i) {
     counter_m -= players[i].n_proper_puts; 
     pollvec.delete_client(i);
     players.delete_client(i);
+}
+
+
+
+string Server::make_scoring() {
+    vector<pair<string, double>> scoring;
+    for (int i = 1; i < pollvec.size(); ++i) {
+        scoring.push_back({
+            players[i].id,
+            players[i].error
+        }); 
+    }
+    auto comp = [](const auto &a, const auto &b) {
+        return a.first < b.first;
+    };
+    sort(scoring.begin(), scoring.end(), comp);
+
+    string res = "SCORING";
+    for (const auto &i: scoring) {
+        res += " " + i.first + " " + to_string(i.second);
+    }
+    res += "\r\n";
+    return res;
+}
+
+void Server::finish_game() {
+    string scoring = make_scoring();
+    for (int i = pollvec.size(); i; --i) {
+        auto &client = players[i];
+        if (!client.helloed) {
+            delete_client(i);
+            continue;
+        }
+        client.send_scoring(scoring);
+        // TODO: jakis error jesli nie cale sie wyslalo?
+        delete_client(i);
+    }
 }
 
 void Server::play_a_game() {

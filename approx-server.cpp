@@ -80,6 +80,15 @@ int main(int argc, char* argv[]) {
     f = args['f'];
 
     Server server(port, k, n, m, f, &finish);
+    if(server.set_up() < 0) {
+        return 1;
+    }
 
+    while (!finish) {
+        server.play_a_game();
+        if (!finish) {
+            sleep(1); // Sleep for 1 second before the next game
+        }
+    }
     return 0;
 }

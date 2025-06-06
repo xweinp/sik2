@@ -33,8 +33,8 @@ bool is_proper_rational(const string& str);
 tuple<string, string> get_point_and_value(const string& msg);
 bool is_put(const string& msg);
 // I assume that the integer non-negative
-int get_int(const string& msg, int mx); // DONE
-double get_double(const string& msg); // DONE
+int get_int(const string& msg, int mx);
+double get_double(const string& msg); 
 // This function assumes that the message is a PUT message checked by is_put.
 bool is_bad_put(const string& point, const string& value, unsigned int k); // DONE
     
@@ -96,6 +96,7 @@ struct Client {
     TimePoint connected_timestamp;
     
     vector<double> approx;
+    vector<double> goal;
     double error = 0.0; 
 
     Client(size_t k) : approx(k + 1, 0.0) {}
@@ -121,6 +122,9 @@ struct Client {
     void send_scoring(const string &scoring) {
         messages_to_send.send_scoring(scoring, fd);
     }
+    vector<double> parse_coefficients(const string &coeff_str);
+    void calc_goal_from_coef(const string &coeff);
+    void update_approximation(const string &point, const string &value);
 };
 
 
@@ -196,25 +200,7 @@ struct Server {
     int set_up();
     void accept_new_connection();
     void delete_client(size_t i);
-
-    string make_scoring() {
-        // TODO
-    }
-
-    void finish_game() {
-        string scoring = make_scoring();
-        for (int i = pollvec.size(); i; --i) {
-            auto &client = players[i];
-            if (!client.helloed) {
-                delete_client(i);
-                continue;
-            }
-            client.send_scoring(scoring);
-            // TODO: jakis error jesli nie cale sie wyslalo?
-            delete_client(i);
-        }
-
-    }
-
+    string make_scoring();
+    void finish_game();
     void play_a_game();
 };
