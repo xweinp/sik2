@@ -331,7 +331,6 @@ int Client::auto_play() {
             }
         }
         if (fds[1].revents & POLLOUT) {
-            cerr  << "Sending PUT 0 0\r\n" << endl;
             if (!messages_to_send.empty()) {
                 messages_to_send.send_message(fds[1].fd);
             }

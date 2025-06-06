@@ -9,7 +9,13 @@ string to_proper_rational(double val) {
     static const size_t buff_len = 1000; 
     static char buffer[buff_len];
     
-    auto res = to_chars(buffer, buffer + buff_len, val);
+    auto res = to_chars(
+        buffer, 
+        buffer + buff_len, 
+        val, std::chars_format::fixed, 
+        7
+    );
+    
     return string(buffer, (size_t) (res.ptr - buffer));
 }
 

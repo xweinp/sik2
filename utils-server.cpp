@@ -368,7 +368,6 @@ int Player::read_message(const string& msg, ifstream &file) {
     if (!helloed) {
         // First message must be a HELLO.
         if (!proper_hello(first_message)) {
-            cerr << 'a' << endl;
             print_error_bad_message(first_message);
             return -1;
         }
@@ -386,7 +385,6 @@ int Player::read_message(const string& msg, ifstream &file) {
     else if (!is_put(first_message)) {
         // This is not even a proper PUT message.
         // I just print ERROR and ignore it.
-        cerr << 'b' << endl;
         print_error_bad_message(first_message);
         started_before_reply = false; // Reset the flag.
     }
@@ -399,6 +397,7 @@ int Player::read_message(const string& msg, ifstream &file) {
         messages_to_send.push(make_penalty(point, value), 0);
         // If the message is a bad put then we also send bad_put.
         if (is_bad_put(point, value, k)) {
+            cerr << 'a' << endl;
             print_error_bad_message(msg);
             messages_to_send.push(make_bad_put(point, value), 1);
         }
@@ -409,6 +408,7 @@ int Player::read_message(const string& msg, ifstream &file) {
         // If the message is a bad put then we also send bad_put.
         auto [point, value] = get_point_and_value(first_message);
         if (is_bad_put(point, value, k)) {
+            cerr << 'b' << endl;
             print_error_bad_message(msg);
             messages_to_send.push(make_bad_put(point, value), 1);
         }
@@ -427,6 +427,7 @@ int Player::read_message(const string& msg, ifstream &file) {
         if (!is_put(msg_i)) {
             // This is not even a proper PUT message.
             // I just print ERROR and ignore it.
+            cerr << 'c' << endl;
             print_error_bad_message(msg_i);
             continue; // Ignore this message.
         }
@@ -544,7 +545,7 @@ void Server::accept_new_connection() {
 
     listen_pollfd.revents = 0; // Reset revents for the next poll.
 
-    Player client((size_t) n);
+    Player client((size_t) k);
     client.addr_len = sizeof(client.addr);
     client.fd = accept(
         listen_pollfd.fd, 
