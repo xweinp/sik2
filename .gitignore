@@ -1,3 +1,5 @@
 .vscode
 tests
 *.o
+approx-server
+approx-client

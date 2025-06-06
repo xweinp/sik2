@@ -1,6 +1,7 @@
 #include <map>
 #include <queue>
 #include <math.h>
+#include <algorithm>
 
 #include "utils.hpp"
 #include "utils-client.hpp"
@@ -265,7 +266,7 @@ int Client::read_from_stdin() {
     string line;
     getline(cin, line);
     if (line.empty()) {
-        print_error("Empty input from stdin.");
+        print_error("invalid input line ");
         return -1; // Error reading from stdin
     }
     size_t space_pos = line.find(' ');
@@ -275,7 +276,7 @@ int Client::read_from_stdin() {
 
     int64_t point_int = get_int(point, INT32_MAX);
     if (point_int < 0 or !is_proper_rational(value)) {
-        print_error("invalid input line: " + line);
+        print_error("invalid input line " + line);
         return 0; 
     }
     cout << "Putting " << value << " in " << point_int << "." << endl;
@@ -378,7 +379,7 @@ int Client::auto_play() {
             string msg = "PUT " + to_string(values.second) + " " + to_proper_rational(val) + "\r\n";
             messages_to_send.push(msg);
 
-            values.first.first -= val;
+            values.first.first -= fabs(val);
             values.first.second -= val;
             val_que.push(values);
         }
@@ -485,7 +486,6 @@ int Client::auto_play() {
 
 
 int Client::interactive_play() {
-
     // First getting the coefficients
     while (!got_coeff) {
         fds[1].revents = 0;
@@ -520,9 +520,8 @@ int Client::interactive_play() {
     fds[1].fd = socket_fd;
     fds[1].events = POLLIN;
 
-    bool finished = false;
-    while (!finished) {
-        fds[0].revents  = fds[1].revents = 0;
+    while (true) {
+        fds[0].revents = fds[1].revents = 0;
         
         if (messages_to_send.empty()) { 
             fds[1].events = POLLIN;
@@ -547,7 +546,6 @@ int Client::interactive_play() {
                 return -1; // Error reading message
             }
             else if (read_res) {
-                finished = true;
                 return 0; // Game ended
             }
         }

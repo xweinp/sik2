@@ -1,4 +1,5 @@
 #include <charconv> 
+#include <algorithm>
 #include "utils-server.hpp"
 
 // Make socket functions
@@ -668,7 +669,7 @@ string Server::make_scoring() {
 
 void Server::finish_game() {
     string scoring = make_scoring();
-
+    cout << "Game end, scoring: " << scoring.substr(8, scoring.size() - 10) << "." << endl;
     for (size_t i = pollvec.size() - 1; i > 0; --i) {
         auto &client = players[i];
         client.send_scoring(scoring);
