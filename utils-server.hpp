@@ -21,27 +21,7 @@ bool proper_hello(const string& msg);
 string id_from_hello(const string& msg);
 size_t get_n_small_letters(const string& str);
 
-struct Message {
-    string content;
-    int delay_s; 
-    int send_weigth;
-
-    bool operator<(const Message& other) const {
-        return delay_s < other.delay_s and send_weigth < other.send_weigth;
-    }
-    void make_penalty() {
-        // TODO: fix this!
-        content = "PENALTY\r\n";
-        delay_s = 0;
-        send_weigth = 0;
-    }
-    void make_state() {
-        content = "STATE\r\n";
-        // delay_s = 
-        // TODO: wtf???
-    }
-};
-
+    
 using TimePoint = steady_clock::time_point;
 using Msg = std::pair<TimePoint, string>;
 struct MsgComparator {
@@ -49,6 +29,26 @@ struct MsgComparator {
         return a.first > b.first; 
     }
 };
+
+
+string make_penalty(const string &point, const string &value) {
+    return "PENALTY " + point + " " + value + "\r\n"; 
+}
+string make_bad_put(const string &point, const string &value) {
+    return "BAD_PUT " + point + " " + value + "\r\n";
+}
+
+string make_coeff(ifstream &file) {
+    string res;
+    getline(file, res); // TODO: ygh czy mam zakladac ze to moze zwrocic blad?
+    return res;
+}
+
+string make_state() {
+   // content = "STATE\r\n";
+    // TODO: wtf???
+}
+
 
 auto time_diff(TimePoint begin, TimePoint end) {
     return duration_cast<milliseconds>(end - begin).count();
@@ -112,10 +112,7 @@ double get_double(const string& msg); // DONE
 // This function assumes that the message is a PUT message checked by is_put.
 bool is_bad_put(const string& point, const string& value, unsigned int k); // DONE
 
-string make_penalty(); // TODO: implement me!
-string make_state(); // TODO: implement me!
-string make_bad_put(); // TODO: implement me!
-string make_coeff(); // TODO: implement me!
+
 
 struct Client {
     int fd; // File descriptor for the client socket
@@ -144,7 +141,7 @@ struct Client {
     TimePoint connected_timestamp;
     
     int set_port_and_ip();
-    void read_message(const string& msg, int k);
+    void read_message(const string& msg, int k, ifstream &file);
     
     bool has_ready_message_to_send() const {
         return !messages_to_send.ready_message();
@@ -316,7 +313,7 @@ struct Server {
                         continue; 
                     }
                     else {
-                        client.read_message(buffer.substr(0, read_len), k);
+                        client.read_message(buffer.substr(0, read_len), k, file);
                     }
 
                 }

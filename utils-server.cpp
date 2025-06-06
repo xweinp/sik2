@@ -264,7 +264,7 @@ int Client::set_port_and_ip() {
     }
 }
 
-void Client::read_message(const string& msg, int k) {
+void Client::read_message(const string& msg, int k, ifstream &file) {
     // every message ends with "\r\n"
     size_t old_len = buffered_message.size();
     buffered_message += msg;
@@ -312,7 +312,7 @@ void Client::read_message(const string& msg, int k) {
             helloed = true;
                 
             cout << to_string_wo_id() << " is now known as " << id << "." << endl;            
-            messages_to_send.push(make_coeff(), 0);
+            messages_to_send.push(make_coeff(file), 0);
         }
     }
     else if (!is_put(first_message)) {
@@ -326,12 +326,12 @@ void Client::read_message(const string& msg, int k) {
             
         // First message is a PUT message.
         // It was sent before the player received a reply so I resend penalty.
-        messages_to_send.push(make_penalty(), 0);
-        // If the message is a bad put then we also send bad_put.
         auto [point, value] = get_point_value(first_message);
+        messages_to_send.push(make_penalty(point, value), 0);
+        // If the message is a bad put then we also send bad_put.
         if (is_bad_put(point, value, k)) {
             print_error_bad_message(msg);
-            messages_to_send.push(make_bad_put(), 1);
+            messages_to_send.push(make_bad_put(point, value), 1);
         }
         started_before_reply = false; // Reset the flag.
     }
@@ -341,9 +341,10 @@ void Client::read_message(const string& msg, int k) {
         auto [point, value] = get_point_value(first_message);
         if (is_bad_put(point, value, k)) {
             print_error_bad_message(msg);
-            messages_to_send.push(make_bad_put(), 1);
+            messages_to_send.push(make_bad_put(point, value), 1);
         }
         else {
+            ++n_proper_puts;
             messages_to_send.push(make_state(), n_small_letters);
         }
     }
@@ -360,15 +361,16 @@ void Client::read_message(const string& msg, int k) {
         auto [point, value] = get_point_value(msg);
         if (is_bad_put(point, value, k)) {
             print_error_bad_message(msg);
-            messages_to_send.push(make_bad_put(), 1);
+            messages_to_send.push(make_bad_put(point, value), 1);
         }
         if (messages_to_send.empty()) {
             // If the message is a bad put then we also send bad_put.
+            ++n_proper_puts;
             messages_to_send.push(make_state(), n_small_letters);
         }
         else {
             // We have already sent a reply.
-            messages_to_send.push(make_penalty(), 0);
+            messages_to_send.push(make_penalty(point, value), 0);
         }
     }
     if (!buffered_message.empty() and !messages_to_send.empty()) {
