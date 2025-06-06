@@ -21,6 +21,7 @@ int ipv4_only_sock(uint16_t port);
 
 bool proper_hello(const string& msg);
 string id_from_hello(const string& msg);
+// returns number of small letters in the id
 size_t get_no_small_letters(const string& str);
 
 string make_penalty(const string &point, const string &value);
@@ -71,7 +72,7 @@ struct MessageQueue {
 
 struct Player {
     int fd; // File descriptor for the client socket
-    sockaddr_storage addr; // Address of the client
+    sockaddr_storage addr{}; // Address of the client
     socklen_t addr_len; // Length of the address structure
 
     string id;
@@ -105,23 +106,13 @@ struct Player {
     // returns: -1 iff we should disconnect the client, 1 iff a proper put was made, 0 otherwise
     int read_message(const string& msg, ifstream &file);
     
-    bool has_ready_message_to_send() const {
-        return messages_to_send.ready_message();
-    }
+    bool has_ready_message_to_send() const;
     // Returns: -1 iff error, 1 iff the whole message was sent, 0 otherwise
-    int send_message() {
-       return messages_to_send.send_message(fd);
-    }
-    string to_string_w_id() { // with id
-        return ip + ":" + to_string(port) + ", " + id != ""? id : "UNKNOWN";
-    }
-    string to_string_wo_id() {
-        return ip + ":" + to_string(port);
-    }
+    int send_message();
+    string to_string_w_id();
+    string to_string_wo_id();
     void print_error_bad_message(const string& msg);
-    void send_scoring(const string &scoring) {
-        messages_to_send.send_scoring(scoring, fd);
-    }
+    void send_scoring(const string &scoring);
     void calc_goal_from_coef(string &coeff);
     void update_approximation(const string &point, const string &value);
 };
@@ -132,16 +123,9 @@ struct PlayerSet {
 
     PlayerSet() : players(1, 0) {} // Because pollfd[0] is the listening socket
 
-    void delete_client(size_t i) {
-        swap(players[i], players[players.size() - 1]);
-        players.pop_back();
-    }
-    Player& operator[](size_t i) {
-        return players[i];
-    }
-    void add_player(const Player &client) {
-        players.push_back(client);
-    }
+    void delete_client(size_t i);
+    Player& operator[](size_t i);
+    void add_player(const Player &client);
 };
 
 
@@ -162,18 +146,9 @@ struct Pollvec {
     }
 
     int set_up();
-
-    void add_client(pollfd client) {
-        pollfds.push_back(client);
-    }
-    void delete_client(size_t i) {
-        close(pollfds[i].fd);
-        swap(pollfds[i], pollfds[pollfds.size() - 1]);
-        pollfds.pop_back();
-    }
-    size_t size() {
-        return pollfds.size();
-    }
+    void add_client(pollfd client);
+    void delete_client(size_t i);
+    size_t size();
 };
 
 
@@ -183,18 +158,15 @@ struct Server {
     int32_t k, n;
     int32_t m, counter_m = 0;
     char* filename;
-    bool *finish_flag; 
     ifstream file;
     const size_t buff_len = 5000;
     string buffer;
     
     Server(
         uint16_t _listen_port,  int32_t _k, 
-        int32_t _n, int32_t _m, char *_filename,
-        bool *_finish_flag
+        int32_t _n, int32_t _m, char *_filename
     ) : pollvec(_listen_port), k(_k), n(_n), m(_m), 
-        filename(_filename), finish_flag(_finish_flag), 
-        buffer(buff_len, '\0') {} 
+        filename(_filename), buffer(buff_len, '\0') {} 
 
     int set_up();
     void accept_new_connection();

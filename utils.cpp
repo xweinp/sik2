@@ -63,26 +63,6 @@ bool is_id_valid(const string& id) {
     return true; // ID is valid
 }
 
-int install_signal_handler(int signal, void (*handler)(int), int flags) {
-    struct sigaction action{};
-    sigset_t block_mask;
-
-    if(sigemptyset(&block_mask) < 0) {
-        print_error("Creating empty signal mask failed!");
-        return -1;
-    }
-    action.sa_handler = handler;
-    action.sa_mask = block_mask;
-    action.sa_flags = flags;
-
-    if (sigaction(signal, &action, NULL) < 0) {
-        print_error("Installing sigaction failed!");
-        return -1;
-    }
-    return 0;
-}
-
-
 bool is_proper_rational(const string& str) {
     if (str.empty()) 
         return false;

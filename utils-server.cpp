@@ -1,22 +1,20 @@
 #include <charconv> 
 #include "utils-server.hpp"
 
-// TODO: parsowanie liczb z tekstu chyba nie uwzglednia braku spracji przed \r\n
-// TODO: jak dajesz penalty to doliczaj do errora!
+// Make socket functions
 
 int ipv6_enabled_sock(uint16_t port) {
     int socket_fd = socket(AF_INET6, SOCK_STREAM, 0);
     if (socket_fd < 0) {
-        return -1; // Cannot create socket
+        return -1;
     }
 
     int opt = 1;
     int res= setsockopt(socket_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
     if (res < 0) {
         close(socket_fd);
-        return -1; // Cannot set SO_REUSEADDR
+        return -1;
     }
-
 
     int off = 0;
     res = setsockopt(
@@ -29,7 +27,7 @@ int ipv6_enabled_sock(uint16_t port) {
 
     if (res < 0) {
         close(socket_fd);
-        return -1; // Cannot set IPV6_V6ONLY option
+        return -1;
     }
 
     sockaddr_in6 addr6{};
@@ -45,14 +43,14 @@ int ipv6_enabled_sock(uint16_t port) {
 
     if (res < 0) {
         close(socket_fd);
-        return -1; // Cannot bind socket
+        return -1;
     }
 
     res = listen(socket_fd, SOMAXCONN);
 
     if (res < 0) {
         close(socket_fd);
-        return -1; // Cannot listen on socket
+        return -1;
     }
     
     return socket_fd;
@@ -62,14 +60,14 @@ int ipv4_only_sock(uint16_t port) {
     int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
 
     if (socket_fd < 0) {
-        return -1; // Cannot create socket
+        return -1;
     }
 
     int opt = 1;
     int res= setsockopt(socket_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
     if (res < 0) {
         close(socket_fd);
-        return -1; // Cannot set SO_REUSEADDR
+        return -1;
     }
 
     sockaddr_in addr{};
@@ -85,24 +83,28 @@ int ipv4_only_sock(uint16_t port) {
 
     if (res < 0) {
         close(socket_fd);
-        return -1; // Cannot bind socket
+        return -1;
     }
 
     res = listen(socket_fd, SOMAXCONN);
 
     if (res < 0) {
         close(socket_fd);
-        return -1; // Cannot listen on socket
+        return -1;
     }
     
     return socket_fd;
 }
 
+
+
+// Message functions
+
+
 bool proper_hello(const string& msg) {
     bool pref_suf =  msg.size() > 8 and 
         msg.substr(0, 6) == "HELLO " and
-        msg.back() == '\n' and 
-        msg[msg.size() - 2] == '\r';
+        msg.substr(msg.size() - 2, 2) == "\r\n";
 
     if (!pref_suf) {
         return false; // Invalid HELLO message format
@@ -136,7 +138,11 @@ string make_bad_put(const string &point, const string &value) {
 string make_coeff(ifstream &file) {
     string res;
     getline(file, res);
-    res += '\n';
+    if (res[0] != 'C') {
+        // Tresc nie mowi wporst czy w pliku jest tez "COEFF "
+        res = "COEFF " + res; 
+    }
+    res += '\n'; // getline pops \n char
     return res;
 }
 string make_state(const vector<double> &approx) {
@@ -199,8 +205,6 @@ bool is_put(const string& msg) {
 }
 
 
-
-    
 // This function assumes that the message is a PUT message checked by is_put.
 bool is_bad_put(const string& point, const string& value, int32_t k) {
     int64_t point_int = get_int(point, (int64_t) k);
@@ -277,7 +281,7 @@ TimePoint MessageQueue::get_ready_time() const {
         return messages.top().first; 
     }
     else {
-        return steady_clock::time_point::max();
+        return steady_clock::now() + seconds(10); // so as not to give to large value
     }
 }
 void MessageQueue::send_scoring(const string &scoring, int socket_fd) {
@@ -328,12 +332,12 @@ int Player::read_message(const string& msg, ifstream &file) {
     int32_t k = (int32_t) approx.size() - 1;
 
     int res = 0;
-    // every message ends with "\r\n"
     size_t old_len = buffered_message.size();
     buffered_message += msg;
     size_t erase_pref = 0;
     vector<string> messages;
 
+    // every message ends with "\r\n"
     for (size_t i = old_len > 0? old_len - 1: 0; i + 1 < buffered_message.size(); ++i) {
         if (buffered_message[i] == '\r' and buffered_message[i + 1] == '\n') {
             // Found end of a message.
@@ -344,22 +348,17 @@ int Player::read_message(const string& msg, ifstream &file) {
     buffered_message.erase(0, erase_pref);
 
     if (messages.empty()) {
+        started_before_reply = true;
         if (buffered_message.empty()) {
-            started_before_reply = false;
+            started_before_reply = false; 
         }
-        else if (messages_to_send.empty()) {
-            // We have not sent any replies yet.
-            started_before_reply = true;
-        }
-        started_before_reply |= !(buffered_message.empty() or messages_to_send.empty());
+        started_before_reply |= !messages_to_send.empty();
         return 0;
     }
     // There is at lest one full message
     const string& first_message = messages[0];
     
-    for (string s: messages) {
-        cerr << "Received message: " << s << endl;
-    }
+
     if (!messages_to_send.empty()) {
         // We have not sent all replies yet.
         started_before_reply = true;
@@ -376,8 +375,14 @@ int Player::read_message(const string& msg, ifstream &file) {
             id = id_from_hello(first_message);
             n_small_letters = get_no_small_letters(id);
             helloed = true;
+
             cout << to_string_wo_id() << " is now known as " << id << "." << endl;
+            
             string coeff = make_coeff(file);
+            string printed_coeff = coeff.substr(6, coeff.size() - 8); 
+            
+            cout << "Player " << id << " get coefficients: " << printed_coeff << "." << endl;
+
             calc_goal_from_coef(coeff);
             messages_to_send.push(coeff, 0);
         }
@@ -395,9 +400,9 @@ int Player::read_message(const string& msg, ifstream &file) {
         // It was sent before the player received a reply so I resend penalty.
         auto [point, value] = get_point_and_value(first_message);
         messages_to_send.push(make_penalty(point, value), 0);
+        error += 20.0;
         // If the message is a bad put then we also send bad_put.
         if (is_bad_put(point, value, k)) {
-            cerr << 'a' << endl;
             print_error_bad_message(msg);
             messages_to_send.push(make_bad_put(point, value), 1);
         }
@@ -408,7 +413,6 @@ int Player::read_message(const string& msg, ifstream &file) {
         // If the message is a bad put then we also send bad_put.
         auto [point, value] = get_point_and_value(first_message);
         if (is_bad_put(point, value, k)) {
-            cerr << 'b' << endl;
             print_error_bad_message(msg);
             messages_to_send.push(make_bad_put(point, value), 1);
         }
@@ -427,7 +431,6 @@ int Player::read_message(const string& msg, ifstream &file) {
         if (!is_put(msg_i)) {
             // This is not even a proper PUT message.
             // I just print ERROR and ignore it.
-            cerr << 'c' << endl;
             print_error_bad_message(msg_i);
             continue; // Ignore this message.
         }
@@ -447,6 +450,7 @@ int Player::read_message(const string& msg, ifstream &file) {
         else {
             // We have already sent a reply.
             messages_to_send.push(make_penalty(point, value), 0);
+            error += 20.0;
         }
     }
     if (!buffered_message.empty() and !messages_to_send.empty()) {
@@ -456,12 +460,30 @@ int Player::read_message(const string& msg, ifstream &file) {
     return res;
 }
 
+ bool Player::has_ready_message_to_send() const {
+    return messages_to_send.ready_message();
+}
+// Returns: -1 iff error, 1 iff the whole message was sent, 0 otherwise
+int Player::send_message() {
+    return messages_to_send.send_message(fd);
+}
+string Player::to_string_w_id() { // with id
+    return ip + ":" + to_string(port) + ", " + id != ""? id : "UNKNOWN";
+}
+string Player::to_string_wo_id() {
+    return ip + ":" + to_string(port);
+}
+
 void Player::print_error_bad_message(const string& msg) {
     print_error(
         "bad message from " + 
         to_string_w_id() +
         ": " + msg
     );
+}
+
+void Player::send_scoring(const string &scoring) {
+    messages_to_send.send_scoring(scoring, fd);
 }
 
 
@@ -494,6 +516,19 @@ void Player::update_approximation(const string &point, const string &value) {
 }
 
 
+// PlayerSet
+
+void PlayerSet::delete_client(size_t i) {
+    swap(players[i], players[players.size() - 1]);
+    players.pop_back();
+}
+Player& PlayerSet::operator[](size_t i) {
+    return players[i];
+}
+void PlayerSet::add_player(const Player &client) {
+    players.push_back(client);
+}
+
 // Pollvec
 
 int Pollvec::set_up() {
@@ -519,6 +554,18 @@ int Pollvec::set_up() {
     return 0;
 }
 
+
+void Pollvec::add_client(pollfd client) {
+    pollfds.push_back(client);
+}
+void Pollvec::delete_client(size_t i) {
+    close(pollfds[i].fd);
+    swap(pollfds[i], pollfds[pollfds.size() - 1]);
+    pollfds.pop_back();
+}
+size_t Pollvec::size() {
+    return pollfds.size();
+}
 
 // Server
 
@@ -626,7 +673,7 @@ void Server::play_a_game() {
     counter_m = 0;
     TimePoint next_event = steady_clock::now() + seconds(1);
 
-    while (counter_m < m and !(*finish_flag)) {
+    while (counter_m < m) {
         int timeout = max(0, (int)time_diff(steady_clock::now(), next_event));
 
         int poll_status = poll(
@@ -637,9 +684,6 @@ void Server::play_a_game() {
 
         if (poll_status < 0) {
             print_error("Poll error occurred. errno: " + to_string(errno) + ".");
-            if (*finish_flag) {
-                return; 
-            }
             continue; 
         }
         // Poll status >= 0. 

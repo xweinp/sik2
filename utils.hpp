@@ -17,8 +17,6 @@ string to_proper_rational(double val);
 int64_t get_arg(char arg, map<char, char*> &args, int64_t def, int64_t min, int64_t max);
 bool is_id_valid(const string& id);
 
-int install_signal_handler(int signal, void (*handler)(int), int flags);
-
 bool is_proper_rational(const string& str);
 
 vector<double> parse_coefficients(string &coeff_str);

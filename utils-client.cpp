@@ -474,6 +474,36 @@ int Client::auto_play() {
 
 
 int Client::interactive_play() {
+
+    // First getting the coefficients
+    while (!got_coeff) {
+        fds[1].revents = 0;
+        fds[1].events = POLLIN;
+        if (!messages_to_send.empty()) {
+            fds[1].events |= POLLOUT; // I have to send Hello
+        }
+        int poll_status = poll(fds + 1, 1, -1);
+        if (poll_status < 0) {
+            print_error("Poll error occurred: " + string(strerror(errno)));
+            return -1;
+        }
+        if (fds[1].revents & POLLIN) {
+            int res = read_message();
+            if (res < 0) {
+                return -1; // Error reading message
+            }
+            else if (res) {
+                return 0; // Game ended
+            }
+        }
+        if (fds[1].revents & POLLOUT) {
+            if (!messages_to_send.empty()) {
+                messages_to_send.send_message(fds[1].fd);
+            }
+        }
+    }
+
+    // Now I have the coefficients
     fds[0].fd = STDIN_FILENO;
     fds[0].events = POLLIN;
     fds[1].fd = socket_fd;
@@ -482,59 +512,40 @@ int Client::interactive_play() {
     bool finished = false;
     while (!finished) {
         fds[0].revents  = fds[1].revents = 0;
-        if (!got_coeff) {
-            // not reading stdin
-            int poll_status = poll(fds + 1, 1, -1);
-            if (poll_status < 0) {
-                print_error("Poll error occurred: " + string(strerror(errno)));
-                return -1;
+        
+        if (messages_to_send.empty()) { 
+            fds[1].events = POLLIN;
+        }
+        else { 
+            fds[1].events = POLLIN | POLLOUT;
+        }
+
+        int poll_status = poll(fds, 2, -1);
+
+        if (poll_status < 0) {
+            print_error("Poll error occurred: " + string(strerror(errno)));
+            return -1;
+        }
+        else if (poll_status == 0) {
+            // Timeout, nothing to do
+            continue;
+        }
+        if (fds[1].revents & POLLIN) {
+            int read_res = read_message();
+            if (read_res < 0) {
+                return -1; // Error reading message
             }
-            if (fds[1].revents & POLLIN) {
-                int res = read_message();
-                if (res < 0) {
-                    return -1; // Error reading message
-                }
-                else if (res) {
-                    finished = true;
-                    return 0;
-                }
+            else if (read_res) {
+                finished = true;
+                return 0; // Game ended
             }
         }
-        else {
-            if (messages_to_send.empty()) { 
-                fds[1].events = POLLIN;
-            }
-            else { 
-                fds[1].events = POLLIN | POLLOUT;
-            }
-
-            int poll_status = poll(fds, 2, -1);
-
-            if (poll_status < 0) {
-                print_error("Poll error occurred: " + string(strerror(errno)));
-                return -1;
-            }
-            else if (poll_status == 0) {
-                // Timeout, nothing to do
-                continue;
-            }
-            if (fds[1].revents & POLLIN) {
-                int read_res = read_message();
-                if (read_res < 0) {
-                    return -1; // Error reading message
-                }
-                else if (read_res) {
-                    finished = true;
-                    return 0; // Game ended
-                }
-            }
-            if (fds[1].revents & POLLOUT and !messages_to_send.empty()) {
-                messages_to_send.send_message(fds[1].fd);
-            }
-            if (fds[0].revents & POLLIN) {
-                if (read_from_stdin() < 0) {
-                    return -1; // Error reading from stdin
-                }
+        if (fds[1].revents & POLLOUT and !messages_to_send.empty()) {
+            messages_to_send.send_message(fds[1].fd);
+        }
+        if (fds[0].revents & POLLIN) {
+            if (read_from_stdin() < 0) {
+                return -1; // Error reading from stdin
             }
         }
     }

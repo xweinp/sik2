@@ -16,30 +16,12 @@ const int64_t DEF_K = 100, MIN_K = 1, MAX_K = 10000;
 const int64_t DEF_N = 4, MIN_N = 1, MAX_N = 8;
 const int64_t DEF_M = 131, MIN_M = 1, MAX_M = 12341234;
 
-// TODO: co na cerr co na cout???
-// TODO: erorry jak w tresi
-// TODO: unknown playrzy w scoring?
-
-static bool finish = false;
-
-static void catch_int(int sig) {
-    finish = true;
-    print_error("Caught signal " + to_string(sig) + ". Exiting after cleanup.");
-}
-
-
-// TODO: size_t to unsigned! chyab gdzies z tym zjebalem! (niekoniecznie w tmy pliku)
-// TODO: endlajny!
 
 int main(int argc, char* argv[]) {
-    // if (install_signal_handler(SIGINT, catch_int, 0)) {
-    //     return 1;
-    // }
-
     map<char, char*> args;
 
     if (argc % 2 != 1) {
-        print_error("Every option must have a value.");
+        print_error("every option must have a value.");
         return 1;
     }
 
@@ -49,15 +31,14 @@ int main(int argc, char* argv[]) {
     
     for (int i = 1; i < argc; i += 2) {
         if (!valid_args.contains(argv[i])) {
-            print_error(string("Invalid option ") + argv[i] + ".");
+            print_error(string("invalid option ") + argv[i] + ".");
             return 1;
         }
         if (args.contains(argv[i][1])) {
-            print_error(string("Double parameter ") + argv[i] + ".");
+            print_error(string("double parameter ") + argv[i] + ".");
             return 1;
         }
         args[argv[i][1]] = argv[i + 1];
-        cout << "Option: " << argv[i] << " Value: " << argv[i + 1] << endl;
     }
 
     int32_t port;
@@ -81,17 +62,14 @@ int main(int argc, char* argv[]) {
     }
     f = args['f'];
 
-    Server server((uint16_t) port, k, n, m, f, &finish);
+    Server server((uint16_t) port, k, n, m, f);
     if(server.set_up() < 0) {
         return 1;
     }
 
-    while (!finish) {
-        cout << "Starting a new game..." << endl;
+    while (true) {
         server.play_a_game();
-        if (!finish) {
-            sleep(1); // Sleep for 1 second before the next game
-        }
+        sleep(1); // Sleep for 1 second before the next game
     }
     return 0;
 }
