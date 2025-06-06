@@ -2,6 +2,7 @@
 #include "utils-server.hpp"
 
 // TODO: parsowanie liczb z tekstu chyba nie uwzglednia braku spracji przed \r\n
+// TODO: jak dajesz penalty to doliczaj do errora!
 
 int ipv6_enabled_sock(uint16_t port) {
     int socket_fd = socket(AF_INET6, SOCK_STREAM, 0);

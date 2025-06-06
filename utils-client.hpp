@@ -14,7 +14,7 @@
 
 using namespace std;
 
-bool check_mandatory_option(const auto &args, char option);
+bool check_mandatory_option(const map<char, char*> &args, char option);
 
 bool valid_bad_put(const string &msg);
 bool valid_penalty(const string &msg);
@@ -37,7 +37,7 @@ struct ClientMessageQueue {
 struct Client {
     string player_id;
     string server_address;
-    uint32_t server_port;
+    uint16_t server_port;
     string server_ip;
     int socket_fd = -1;
     int32_t k, n;
@@ -56,9 +56,9 @@ struct Client {
 
     pollfd fds[2]; // fds[0] is for stdin, fds[1] is for the server socket
 
-    Client(string player_id, string server_address, uint32_t server_port)
-        : player_id(player_id), server_address(server_address), 
-        server_port(server_port), buffer(buff_len, '\0') {}
+    Client(string _player_id, string _server_address, uint16_t _server_port)
+        : player_id(_player_id), server_address(_server_address), 
+        server_port(_server_port), buffer(buff_len, '\0') {}
 
 
     // returns -1 on error

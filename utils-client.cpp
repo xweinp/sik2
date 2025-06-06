@@ -1,7 +1,9 @@
+#include <map>
+
 #include "utils.hpp"
 #include "utils-client.hpp"
 
-bool check_mandatory_option(const auto &args, char option) {
+bool check_mandatory_option(const map<char, char*> &args, char option) {
     if (!args.contains(option)) {
         cout << "ERROR: option -" << option << " is mandatory.\n";
         return false;
@@ -11,13 +13,20 @@ bool check_mandatory_option(const auto &args, char option) {
 }
 
 bool valid_bad_put(const string &msg) {
+    return msg.size() > 10 and 
+        msg.substr(0, 8) == "BAD_PUT" and
+        msg.substr(msg.size() - 2, 2) == "\r\n";
 
 }
 bool valid_penalty(const string &msg) {
-
+    return msg.size() > 10 and 
+        msg.substr(0, 8) == "PENALTY " and
+        msg.substr(msg.size() - 2, 2) == "\r\n"; 
 }
 bool valid_state(const string &msg) {
-
+    return msg.size() > 8 and 
+        msg.substr(0, 6) == "STATE " and
+        msg.substr(msg.size() - 2, 2) == "\r\n";
 }
 bool valid_coeff(string &msg) {
     bool pref_suf = msg.size() > 8 and 
@@ -66,7 +75,7 @@ void ClientMessageQueue::send_message(int socket_fd) {
         print_error("Senging message failed: " + string(strerror(errno)));
         return;
     }
-    current_pos += bytes_sent;
+    current_pos += (size_t) bytes_sent;
     if (current_pos == current_message.size()) {
         current_message.clear();
         current_pos = 0;
@@ -90,6 +99,7 @@ int Client::setup_stdin() {
         print_error("Cannot set stdin to non-blocking: " + string(strerror(errno)));
         return -1;
     }
+    return 0;
 }
 
 int Client::connect_to_server(bool force_ipv4, bool force_ipv6) {
@@ -113,7 +123,7 @@ int Client::connect_to_server(bool force_ipv4, bool force_ipv6) {
     }
 
 
-    int socket_fd = socket(
+    socket_fd = socket(
         res->ai_family,
         SOCK_STREAM, 
         0
@@ -124,12 +134,12 @@ int Client::connect_to_server(bool force_ipv4, bool force_ipv6) {
         return -1;
     }
 
-    int res = connect(
+    ret = connect(
         socket_fd,
         res->ai_addr,
         res->ai_addrlen
     );
-    if (res < 0) {
+    if (ret < 0) {
         print_error("Cannot connect to server: " + string(strerror(errno)));
         freeaddrinfo(res);
         close(socket_fd);
@@ -145,7 +155,7 @@ int Client::connect_to_server(bool force_ipv4, bool force_ipv6) {
     return socket_fd;
 }
 
-int Client::send_hello() {
+int Client::send_hello() { // TODO: tutaj tez czytj czy przupadkiem sie nie skonczyla gra!
     string message = "HELLO " + player_id + "\r\n";
     size_t pos = 0;
     while (pos < message.size()) {
@@ -160,12 +170,13 @@ int Client::send_hello() {
             close(socket_fd);
             return -1;
         }
-        pos += bytes_sent;
+        pos += (size_t) bytes_sent;
     }
+    return 0;
 }
 
 int Client::read_message() {
-    size_t read_len = read(fds[1].fd, buffer.data(), buff_len);
+    ssize_t read_len = read(fds[1].fd, buffer.data(), buff_len);
     if (read_len < 0) {
         print_error("Reading message from server failed: " + string(strerror(errno)));
         return -1;
@@ -175,7 +186,7 @@ int Client::read_message() {
         return 1;
     }
     size_t old_len = received_buffer.size();
-    received_buffer += string(buffer.data(), read_len);
+    received_buffer += string(buffer.data(), (size_t) read_len);
 
     vector<string> messages;
     size_t erase_pref = 0;
@@ -200,7 +211,7 @@ int Client::read_message() {
                 got_response = true;
                 cout << "Received coefficients: " << msg.substr(6, msg.size() - 8) << "." << endl;
                 coefficients = parse_coefficients(msg);
-                n = coefficients.size() - 1;
+                n = (int32_t) coefficients.size() - 1;
             } 
             else {
                 print_error("bad message from " + msg); // TODO: serwer ip i ports
@@ -216,7 +227,7 @@ int Client::read_message() {
             }
             else if (valid_state(msg)) {
                 got_response = true;
-                int k = count(msg.begin(), msg.end(), ' ') - 1;
+                k = (int32_t) count(msg.begin(), msg.end(), ' ') - 1;
                 cout << "Received state: " << msg.substr(6, msg.size() - 8) << "." << endl;
             }
             else {
@@ -224,6 +235,7 @@ int Client::read_message() {
             }
         }
     }
+    return 0;
 }
 
 int Client::read_from_stdin() {
@@ -233,7 +245,7 @@ int Client::read_from_stdin() {
         print_error("Empty input from stdin.");
         return -1; // Error reading from stdin
     }
-    int space_pos = line.find(' ');
+    size_t space_pos = line.find(' ');
     string point = line.substr(0, space_pos);
     string value = line.substr(space_pos + 1);
 
@@ -244,6 +256,7 @@ int Client::read_from_stdin() {
         return 0; 
     }
     messages_to_send.push("PUT " + point + " " + value + "\r\n");
+    return 0;
 }
 
 int Client::auto_play() {
@@ -292,20 +305,20 @@ int Client::auto_play() {
     }
     // now that i know k I calculate values of the polynomial
     // at all point 0, 1, ..., k and sort them
-    vector<pair<double, int32_t>> values(k + 1);
+    vector<pair<double, int32_t>> values((size_t) k + 1);
 
-    for (int32_t i = 0; i < k; ++i) {
+    for (size_t i = 0; i < (size_t) k; ++i) {
         double power = 1.0;
-        for (int32_t j = 0; j <= n; ++j) {
+        for (size_t j = 0; j <= (size_t) n; ++j) {
             values[i].first += coefficients[j] * power;
             power *= (double) i;
         }
-        values[i].second = i;
+        values[i].second = (int32_t) i;
     }
     sort(values.begin(), values.end());
     
     // now I send PUT messages for all points form largest to smallest
-    for (int32_t i = k; i >= 0; --i) {
+    for (ssize_t i = (ssize_t) k; i >= 0; --i) {
         string msg = "PUT " + to_string(values[i].second) + " " + to_proper_rational(values[i].first) + "\r\n";
         messages_to_send.push(msg);
 
@@ -408,7 +421,6 @@ int Client::interactive_play() {
     fds[1].fd = socket_fd;
     fds[1].events = POLLIN;
 
-    bool got_coeff = false;
     bool finished = false;
     while (!finished) {
         fds[0].revents  = fds[1].revents = 0;

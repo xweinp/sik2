@@ -20,28 +20,29 @@ int main(int argc, char* argv[]) {
     bool force_ipv4 = false, force_ipv6 = false;
 
     for (int i = 1; i < argc; i += 2) {
-        if (!valid_args.contains(argv[i])) {
-            cout << "ERROR: invalid option " << argv[i] << ".\n";
+        string arg(argv[i]);
+        if (!valid_args.contains(arg)) {
+            cout << "ERROR: invalid option " << arg << ".\n";
             return 1;
         }
-        if (argv[i] == "-a") {
+        if (arg == "-a") {
             auto_strategy = true;
             --i;
         }
-        else if (argv[i] == "-4") {
+        else if (arg == "-4") {
             force_ipv4 = true;
             --i;
         }
-        else if (argv[i] == "-6") {
+        else if (arg == "-6") {
             force_ipv6 = true;
             --i;
         }
-        else if (args.contains(argv[i][1])) {
-            cout << "ERROR: double parameter " << argv[i] << ".\n";
+        else if (args.contains(arg[1])) {
+            cout << "ERROR: double parameter " << arg << ".\n";
             return 1;
         }
         else {
-            args[argv[i][1]] = argv[i + 1];
+            args[arg[1]] = argv[i + 1];
         }
     }
 
@@ -51,7 +52,7 @@ int main(int argc, char* argv[]) {
 
     string player_id;
     string server_address;
-    uint16_t port;
+    int32_t port;
     
     
     if (
@@ -69,12 +70,12 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     server_address = args['s'];
-    port = get_arg('p', args, DEF_P, MIN_P, MAX_P);
+    port = (int32_t) get_arg('p', args, DEF_P, MIN_P, MAX_P);
     
     Client client(
         player_id, 
         server_address, 
-        port
+        (uint16_t) port
     );
 
     
