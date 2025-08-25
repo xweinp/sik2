@@ -10,21 +10,31 @@ TARGETS = approx-client approx-server
 all: $(TARGETS)
 
 
-approx-client: approx-client.o utils-client.o utils.o
+
+approx-client: client/approx-client.o client/utils-client.o common/utils.o
 	$(CXX) $(CXXFLAGS) $^ -o $@
-approx-server: approx-server.o utils-server.o utils.o
+
+approx-server: server/approx-server.o server/utils-server.o common/utils.o
 	$(CXX) $(CXXFLAGS) $^ -o $@
 
-approx-client.o: approx-client.cpp utils-client.hpp utils.hpp
-approx-server.o: approx-server.cpp utils-server.hpp utils.hpp
 
-utils-client.o: utils-client.cpp utils.hpp
-utils-server.o: utils-server.cpp utils.hpp
+client/approx-client.o: client/approx-client.cpp client/utils-client.hpp common/utils.hpp
+	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-utils.o: utils.cpp utils.hpp
+server/approx-server.o: server/approx-server.cpp server/utils-server.hpp common/utils.hpp
+	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-clean: 
-	rm -f *.o $(TARGETS)
+client/utils-client.o: client/utils-client.cpp client/utils-client.hpp common/utils.hpp
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+server/utils-server.o: server/utils-server.cpp server/utils-server.hpp common/utils.hpp
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+common/utils.o: common/utils.cpp common/utils.hpp
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+clean:
+	rm -f client/*.o server/*.o common/*.o $(TARGETS)
 	
 
 .PHONY: all clean debug

@@ -1,0 +1,92 @@
+#include <iostream>
+#include <unordered_set>
+
+#include "../common/utils.hpp"
+#include "utils-client.hpp"
+
+using namespace std;
+
+constexpr uint64_t DEF_P = 0, MIN_P = 0, MAX_P = 65535;
+
+int main(int argc, char* argv[]) {
+  map<char, char*> args;
+
+  unordered_set<string> valid_args = {"-u", "-s", "-p", "-4", "-6", "-a"};
+
+  bool auto_strategy = false;
+  bool force_ipv4 = false, force_ipv6 = false;
+
+  for (int i = 1; i < argc; i += 2) {
+    string arg(argv[i]);
+    if (!valid_args.contains(arg)) {
+      cout << "ERROR: invalid option " << arg << ".\n";
+      return 1;
+    }
+    if (arg == "-a") {
+      auto_strategy = true;
+      --i;
+    } else if (arg == "-4") {
+      force_ipv4 = true;
+      --i;
+    } else if (arg == "-6") {
+      force_ipv6 = true;
+      --i;
+    } else if (args.contains(arg[1])) {
+      cout << "ERROR: double parameter " << arg << ".\n";
+      return 1;
+    } else {
+      args[arg[1]] = argv[i + 1];
+    }
+  }
+
+  if (force_ipv4 and force_ipv6) {
+    force_ipv4 = force_ipv6 = false;
+  }
+
+  string player_id;
+  string server_address;
+  int32_t port;
+
+  if (!check_mandatory_option(args, 'u') ||
+      !check_mandatory_option(args, 's') ||
+      !check_mandatory_option(args, 'p')) {
+    return 1;
+  }
+
+  player_id = args['u'];
+
+  if (!is_id_valid(player_id)) {
+    print_error("invalid player ID '" + player_id + "'.");
+    return 1;
+  }
+  server_address = args['s'];
+  port = (int32_t)get_arg('p', args, DEF_P, MIN_P, MAX_P);
+
+  Client client(player_id, server_address, (uint16_t)port);
+
+  if (client.connect_to_server(force_ipv4, force_ipv6) < 0) {
+    return 1;
+  }
+
+  if (client.send_hello() < 0) {
+    return 1;
+  }
+
+  if (auto_strategy) {
+    int res = client.auto_play();
+    close(client.fds[1].fd);
+    if (res < 0) {
+      return 1;
+    }
+  } else {
+    if (client.setup_stdin() < 0) {
+      return 1;
+    }
+    int res = client.interactive_play();
+    close(client.fds[1].fd);
+    if (res < 0) {
+      return 1;
+    }
+  }
+  return 0;
+}
